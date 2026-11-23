@@ -1,0 +1,29 @@
+#!/bin/sh
+# Copies mods between this repo and the running Herdr app.
+#   ./sync pull [name]      app -> repo   (after editing a mod live, before committing)
+#   ./sync install [name]   repo -> app   (on a new machine, or after git pull)
+# Herdr does not hot-reload a symlinked mod folder, so the app keeps real copies.
+set -eu
+HOME_DIR="${HERDR_APP_HOME:-$HOME/.config/herdr-app}"
+REPO="$(cd "$(dirname "$0")" && pwd)"
+ACTION="${1:-}"; ONLY="${2:-}"
+case "$ACTION" in pull|install) ;; *) echo "usage: ./sync pull|install [name]" >&2; exit 2;; esac
+
+found=0
+for dir in "$REPO"/*/mods/*/; do
+  name="$(basename "$dir")"
+  [ -z "$ONLY" ] || [ "$ONLY" = "$name" ] || continue
+  found=1
+  live="$HOME_DIR/mods/$name"
+  if [ "$ACTION" = pull ]; then
+    [ -d "$live" ] || { echo "skip $name: not installed in $HOME_DIR/mods" >&2; continue; }
+    rsync -a --delete --exclude gpui-kit.d.ts --exclude jsconfig.json --exclude '.*' "$live/" "$dir"
+    echo "pulled $name"
+  else
+    mkdir -p "$live"
+    rsync -a --exclude gpui-kit.d.ts --exclude jsconfig.json "$dir" "$live/"
+    herdr-app check "$live"
+    echo "installed $name"
+  fi
+done
+[ "$found" = 1 ] || { echo "no mod named '$ONLY' in this repo" >&2; exit 1; }

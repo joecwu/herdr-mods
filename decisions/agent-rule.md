@@ -1,51 +1,60 @@
-# 需要使用者決策時：寫決策檔
+# When you need the user's decision: write a decision file
 
-Joe 的 Herdr 視窗右側有「待決策」面板，會列出每個專案 `.decisions/` 裡的決策檔，他在面板上按鈕決定。
-遇到需要他決定、而且你可以先做別的事的情況，寫一個決策檔，不要只在對話裡問完就停住。
+The user's Herdr window has a Decisions panel. It lists the decision files in each project's
+`.decisions/` folder, and the user decides there with a click. When you need their decision and
+have other work you can do meanwhile, write a decision file instead of asking in the chat and
+stopping.
 
-## 什麼時候寫
+## When to write one
 
-- 有多個可行方向，選哪個是他的判斷（範圍、取捨、花錢、對外發布、不可逆的操作）。
-- 你做完一段工作，需要他核准才能進下一步（例如 commit 後要不要 push、要不要上傳報告）。
+- There are several workable directions and the choice is theirs to make: scope, trade-offs,
+  spending money, publishing, anything hard to undo.
+- You finished a piece of work and need approval for the next step, such as pushing after a commit.
 
-不用寫的情況：答案可以從程式碼、文件或合理預設得到；或是你完全卡住、沒有其他事可做（這時直接在對話裡問）。
+Don't write one when the answer follows from the code, the docs or a sensible default, or when you
+are fully blocked with nothing else to do. Then ask in the chat.
 
-## 怎麼寫
+## How to write it
 
-在專案的 git 根目錄建立 `.decisions/<日期>-<簡短英文代號>.md`：
+Create `.decisions/<date>-<short-slug>.md` in the project's git root:
 
-```markdown
+````markdown
 ---
-title: 一句話講清楚要決定什麼
+title: One line that says what is being decided
 status: pending
-requester: <你的 $HC_TERMINAL_ID，例如 t101>
-created: 2026-11-23 14:30
-options: ["A：做法一", "B：做法二"]
+requester: <your $HC_TERMINAL_ID, for example t7>
+created: 2026-11-20 14:10
+options: ["A: first approach", "B: second approach"]
 ---
-## 背景
-為什麼現在需要決定，兩三句。
+## Background
+Why a decision is needed now, in two or three sentences.
 
-## 判斷資訊
-每個選項的影響、成本、風險，以及你的建議和理由。
-```
+## What to weigh
+What each option changes, costs and risks, and which one you recommend and why.
+````
 
-- `requester` 用 `echo $HC_TERMINAL_ID` 取得，面板靠它把結果送回給你。
-- `options` 是寫在同一行的 JSON 陣列，每個選項會變成一顆按鈕；面板另外固定有「駁回」。
-  只需要核准或駁回時，省略 `options`，面板會顯示「核准」和「駁回」。
-- frontmatter 每個欄位一行，不要用多行值。
-- 內文要讓他不回頭看對話也能決定：寫完整句子，附上必要的數字、檔案路徑、連結。
-- 要他親自執行的指令放在 fenced code block（三個反引號）裡，面板會在每個區塊旁放「複製」按鈕，整塊複製。
-  一個區塊只放一組要一起貼上的指令；說明文字寫在區塊外，區塊內不要放註解或提示符號（`$`）。
-- 寫完後在對話裡用一句話說明你開了哪個決策，然後繼續做不依賴這個決策的工作。
+- Get `requester` from `echo $HC_TERMINAL_ID`. The panel sends the result there.
+- `options` is a JSON array on one line; each entry becomes a button, and the panel always adds
+  Reject. Omit `options` when a plain approve or reject is enough.
+- One line per frontmatter field. Multi-line values are not read.
+- Write the body so the user can decide without going back to the chat: full sentences, with the
+  numbers, file paths and links that matter.
+- Put a command the user must run themselves in a fenced code block. The panel shows a Copy button
+  beside each block and copies the whole block. One block holds one set of commands to paste
+  together; keep explanations outside it and leave out comments and prompt symbols (`$`).
+- After writing the file, say in one sentence which decision you opened, then carry on with work
+  that does not depend on it.
 
-## 收到結果之後
+## After the user decides
 
-他決定後，面板會把檔案改成 `status: decided`，加上 `decision`、`note`、`decided_at`，並用 `hc send` 通知你。
+The panel sets `status: decided`, adds `decision`, `note` and `decided_at`, and notifies you with
+`hc send`.
 
-- 以檔案內容為準：收到通知後重新讀決策檔，照 `decision` 和 `note` 執行。
-  `decision` 是他按的選項文字，或 `approved`、`rejected`。
-- 被駁回時（`decision: "rejected"`），`note` 是他寫的駁回原因。不要照原提案進行，依原因調整後續做法；
-  調整後還需要他決定，就開一個新的決策檔。
-- 沒收到通知也要檢查：每完成一段工作、或要動到這個決策相關的事之前，讀一次自己開的決策檔。
-- 處理完把檔案移到 `.decisions/done/`，面板就不再顯示。
-- 決策已經不需要了（情況改變、你自己解決了）就直接把檔案移到 `.decisions/done/`。
+- The file is the source of truth. When notified, read the file again and act on `decision` and
+  `note`. `decision` is the text of the option they clicked, or `approved` or `rejected`.
+- On a rejection (`decision: "rejected"`), `note` is their reason. Do not proceed as proposed;
+  adjust to the reason. If the adjusted plan needs their decision too, write a new decision file.
+- Check even without a notification: read your open decision files after each piece of work and
+  before you touch anything a decision covers.
+- When you have handled it, move the file to `.decisions/done/`. The panel stops showing it.
+- If the decision is no longer needed, move the file to `.decisions/done/` as well.

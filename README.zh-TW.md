@@ -6,6 +6,10 @@
 |---|---|
 | [decisions](decisions/README.zh-TW.md) | 側邊面板，集中列出各個 agent session 等你決定的事。可以核准、選擇選項，或附上原因駁回，結果會送回 session。 |
 
+### decisions
+
+<a href="decisions/README.zh-TW.md"><img src="decisions/preview.png" alt="決策面板：兩筆待決策與一筆已決定" width="346"></a>
+
 ## 安裝
 
 每個 mod 資料夾都照 Herdr 的分享格式，可以把資料夾網址交給 agent 請它安裝，或自己複製：

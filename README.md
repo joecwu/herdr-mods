@@ -9,6 +9,10 @@ use every day. [繁體中文](README.zh-TW.md)
 |---|---|
 | [decisions](decisions/) | A side panel that collects the decisions your agent sessions are waiting on. Approve, pick an option or reject with a reason; the result goes back to the session. |
 
+### decisions
+
+<a href="decisions/"><img src="decisions/preview.png" alt="The decisions panel listing two pending decisions and one decided" width="346"></a>
+
 ## Install
 
 Each mod folder follows Herdr's sharing layout, so you can hand an agent the folder's URL and ask it

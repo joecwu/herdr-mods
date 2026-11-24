@@ -57,4 +57,8 @@ The panel sets `status: decided`, adds `decision`, `note` and `decided_at`, and 
 - Check even without a notification: read your open decision files after each piece of work and
   before you touch anything a decision covers.
 - When you have handled it, move the file to `.decisions/done/`. The panel stops showing it.
+- An answer in the chat counts as the decision. Do not wait for the panel: set `status: decided`
+  yourself, add `decision` (what they chose), `note` (say it was answered in the chat, plus
+  anything they added) and `decided_at`, act on it, then move the file to `.decisions/done/`.
+  If the answer settles only part of it, rewrite the file to ask only what is still open.
 - If the decision is no longer needed, move the file to `.decisions/done/` as well.

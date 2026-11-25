@@ -92,6 +92,8 @@ class GuardTest(unittest.TestCase):
             "現在沒有事要你決定。",
             "這輪不需要你確認，我直接做完了。",
             "你決定了 A，已經做完。",
+            "production 排程：11-25 你放行後已經建好。",
+            "你確認後，我已把設定推上去。",
             "這三種寫法不會再被當成在請你決定：",
             "測試句是「有兩個方向，請你決定要走哪個。」，被擋了一次。",
             "Nothing here is your call; I went with the default.",
@@ -103,6 +105,10 @@ class GuardTest(unittest.TestCase):
 
     def test_still_blocks_a_real_request_after_a_negated_one(self):
         self.say("A 不用你確認。B 有兩個做法，請你決定。")
+        self.assertIsNotNone(self.run_hook())
+
+    def test_still_blocks_a_step_that_waits_for_the_go_ahead(self):
+        self.say("排程已經準備好，你放行後我就建立。")
         self.assertIsNotNone(self.run_hook())
 
     def test_passes_the_second_time_so_a_session_is_never_stuck(self):

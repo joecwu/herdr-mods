@@ -26,12 +26,12 @@ ASKS = {
     ),
 }
 # What makes a matched phrase something other than a request: a negation just before it in the
-# same clause ("沒有事要你決定"), or a past marker just after it ("你決定了 A").
+# same clause ("沒有事要你決定"), or a past marker just after it ("你決定了 A", "你放行後已經建好").
 NEGATED = {
     "zh": re.compile(r"(沒有|沒|不用|不需要|不必|不會|不是|不算|不在|並非|無需|無須|無)[^，。；：！？,;:!?\n]{0,8}$|不$"),
     "en": re.compile(r"\b(no|not|nothing|never|without|don't|doesn't|didn't|isn't|needn't)\b[^.,;:!?\n]{0,30}$", re.I),
 }
-PAST = {"zh": re.compile(r"^(了|過|的|好)"), "en": re.compile(r"^d\b")}
+PAST = {"zh": re.compile(r"^(了|過|的|好|[，,]?\s*(我|就)?(已經|已))"), "en": re.compile(r"^d\b")}
 # Quoted text and code are talked about, not said.
 QUOTED = re.compile(r"「[^」]*」|『[^』]*』|“[^”]*”|\"[^\"\n]*\"|```.*?```|`[^`\n]*`", re.S)
 MENTIONS_FILE = re.compile(r"\.decisions|決策檔|決策面板|待決策|decision file|decisions panel", re.I)

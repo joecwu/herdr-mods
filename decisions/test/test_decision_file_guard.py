@@ -87,6 +87,23 @@ class GuardTest(unittest.TestCase):
         self.say("已經修好並跑過測試。")
         self.assertIsNone(self.run_hook())
 
+    def test_passes_replies_that_only_mention_deciding(self):
+        for reply in [
+            "現在沒有事要你決定。",
+            "這輪不需要你確認，我直接做完了。",
+            "你決定了 A，已經做完。",
+            "測試句是「有兩個方向，請你決定要走哪個。」，被擋了一次。",
+            "Nothing here is your call; I went with the default.",
+            "The test reply was `it's your call`.",
+        ]:
+            with self.subTest(reply=reply):
+                self.say(reply)
+                self.assertIsNone(self.run_hook())
+
+    def test_still_blocks_a_real_request_after_a_negated_one(self):
+        self.say("A 不用你確認。B 有兩個做法，請你決定。")
+        self.assertIsNotNone(self.run_hook())
+
     def test_passes_the_second_time_so_a_session_is_never_stuck(self):
         self.say(ASKING)
         self.assertIsNone(self.run_hook(stop_hook_active=True))

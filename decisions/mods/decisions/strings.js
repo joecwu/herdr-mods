@@ -3,6 +3,7 @@
 
 const en = {
   title: "Decisions",
+  all: "All",
   rail: "Decide",
   expand: "Expand",
   restore: "Restore",
@@ -41,6 +42,7 @@ const en = {
 
 const zhTW = {
   title: "待決策",
+  all: "全部",
   rail: "決策",
   expand: "放大",
   restore: "縮小",

@@ -1,7 +1,8 @@
 // Decisions waiting for the person, across every project with an open pane.
 // Each decision is one markdown file in <project>/.decisions/<id>.md, written by
 // an agent session. Deciding here rewrites the file's frontmatter (the source of
-// truth) and tells the requesting session with `hc send`.
+// truth) and tells the requesting session with `hc send`. Decisions are grouped by the space
+// that asked, with a tab per space to show one at a time.
 //
 // Block props, all optional:
 //   lang   "en" (default) or "zh-TW"
@@ -12,7 +13,8 @@ import { View, div } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, TextView, Scrollbar } from "gpui-base";
 import { parse, withMeta, decidedMeta, segments, PENDING, APPROVED, REJECTED } from "./decision-file.js";
 import { strings } from "./strings.js";
-import { panes, focused, props, layout, exec, hc, readTextFile, writeTextFile, watchFolder, theme, settings, notify, setBadge, checking, run } from "herdr";
+import { bySpace } from "./groups.js";
+import { panes, spaces, focused, props, layout, exec, hc, readTextFile, writeTextFile, watchFolder, theme, settings, notify, setBadge, checking, run } from "herdr";
 
 const DIR = ".decisions";
 const REFRESH_MS = 15000;
@@ -29,7 +31,7 @@ export default class Decisions extends View {
   init(_props, cx) {
     this.projects = []; this.roots = new Map(); this.known = false; this.announced = null; this.watching = new Set();
     this.text = strings(props()?.lang); this.fixedRoots = Array.isArray(props()?.roots) ? props().roots : null;
-    this.toggled = new Set(); this.notes = new Map(); this.rejecting = new Set(); this.busy = new Set(); this.message = null; this.badge = null;
+    this.toggled = new Set(); this.notes = new Map(); this.rejecting = new Set(); this.busy = new Set(); this.message = null; this.badge = null; this.tab = null;
     if (checking()) return;
     this.refresh(cx);
     cx.timer.every(REFRESH_MS, (cx) => this.refresh(cx));
@@ -192,6 +194,32 @@ export default class Decisions extends View {
     run("layout.hide", { id: MAIN_BLOCK });
   }
 
+  // Where spaces, terminals and projects are right now, for bySpace.
+  places() {
+    const tabs = new Map(), terminals = new Map(), roots = new Map();
+    const order = spaces().map((space) => {
+      const place = { id: space.id, name: space.name };
+      for (const tab of space.tabs) tabs.set(tab.id, place);
+      return place;
+    });
+    for (const pane of panes()) {
+      const place = tabs.get(pane.tab);
+      if (!place) continue;
+      if (pane.terminal) terminals.set(pane.terminal, place);
+      const root = this.roots.get(pane.cwd);
+      if (root && !roots.has(root)) roots.set(root, place);
+    }
+    return { order, terminals, roots };
+  }
+
+  tabChip(id, label, count, selected, here, t, onClick) {
+    return h_flex().id(id).flex_none().max_w(160).h(22).px(7).gap(5).items_center().rounded(6).border_1().cursor_pointer().text_size(11)
+      .border_color(selected ? t.accent : t.border).bg(selected ? t.raised : t.background).text_color(selected || here ? t.foreground : t.muted)
+      .hover((s) => s.bg(t.hover)).on_click(onClick)
+      .child(div().min_w(0).truncate().when(here, (e) => e.font_semibold()).child(label))
+      .child(div().flex_none().px(4).rounded(4).text_size(10).font_semibold().bg(count ? t.blocked : t.raised).text_color(count ? t.background : t.dim).child(String(count)));
+  }
+
   button(id, label, t, primary, onClick) {
     return h_flex().id(id).min_h(28).px(10).py(4).items_center().rounded(7).border_1().cursor_pointer().text_size(12)
       .border_color(primary ? t.solid : t.input).bg(primary ? t.solid : t.raised).text_color(primary ? t.solid_foreground : t.foreground)
@@ -223,7 +251,7 @@ export default class Decisions extends View {
         .child(div().flex_1().min_w(0).font_semibold().when(!open, (e) => e.truncate()).child(item.title))
         .when(!pending, (e) => e.child(div().flex_none().max_w(120).truncate().text_size(11).text_color(t.muted).child(this.label(item.decision)))))
       .when(open, (e) => e.child(v_flex().w_full().px(10).pb(10).gap(8)
-        .child(div().text_size(11).text_color(t.dim).child([item.requester && text.from(item.requester), item.created].filter(Boolean).join(" · ") || item.id))
+        .child(div().text_size(11).text_color(t.dim).child([item.project, item.requester && text.from(item.requester), item.created].filter(Boolean).join(" · ") || item.id))
         .children(this.body(item, key, t))
         .when(pending, (e) => e
           .when(this.notes.has(item.path), (e) => e.child(div().id(`dec-note-${key}`).w_full().h(30).px(8).flex().items_center().rounded(7).border_1().border_color(t.border).cursor_text()
@@ -243,9 +271,12 @@ export default class Decisions extends View {
 
   render() {
     const zoomed = this.zoomed(), text = this.text;
-    const t = theme(), current = this.roots.get(focused()?.cwd ?? "");
-    const projects = [...this.projects].filter((p) => p.items.length).sort((a, b) => Number(b.root === current) - Number(a.root === current));
-    const pending = projects.reduce((n, p) => n + p.items.filter(isPending).length, 0);
+    const t = theme(), here = focused()?.space;
+    const groups = bySpace(this.projects, this.places());
+    const pending = groups.reduce((n, group) => n + group.pending, 0);
+    const shown = groups.filter((group) => group.id === this.tab);
+    const listed = shown.length ? shown : groups;
+    const pick = (id) => (_e, cx) => { this.tab = id; cx.notify(); };
     const root = v_flex().id("decisions").size_full().min_h(0).rounded(10).overflow_hidden().bg(t.background).border_1().border_color(t.border)
       .text_color(t.foreground).text_size(13).on_size_change((size, cx) => { this.narrow = size.width < NARROW_BELOW; cx.notify(); });
     if (this.narrow) {
@@ -261,13 +292,16 @@ export default class Decisions extends View {
         .child(div().flex_1())
         .child(div().id("dec-zoom").px(6).py(2).rounded(5).text_size(12).text_color(zoomed ? t.accent : t.muted).cursor_pointer().hover((s) => s.bg(t.hover)).on_click(() => this.toggleZoom()).child(zoomed ? text.restore : text.expand))
         .child(div().id("dec-fold").px(6).py(2).rounded(5).text_size(12).text_color(t.muted).cursor_pointer().hover((s) => s.bg(t.hover)).on_click(() => this.resize(RAIL_PX)).child("»")))
+      .when(groups.length > 1, (e) => e.child(h_flex().flex_none().flex_wrap().px(10).py(8).gap(5).border_b(1).border_color(t.border)
+        .child(this.tabChip("dec-tab-all", text.all, pending, !shown.length, false, t, pick(null)))
+        .children(groups.map((group, g) => this.tabChip(`dec-tab-${g}`, group.name, group.pending, Boolean(shown.length) && group.id === this.tab, group.id === here, t, pick(group.id))))))
       .child(div().flex_1().min_h(0).relative()
         .child(v_flex().id("dec-list").absolute().inset_0().overflow_y_scroll().p(10).gap(8).when(zoomed, (e) => e.items_center())
-          .children(projects.flatMap((project, p) => [
-            div().w_full().max_w(READING_WIDTH).flex_none().pt(2).text_size(11).font_semibold().text_color(project.root === current ? t.accent : t.muted).child(project.name),
-            ...[...project.items].sort((a, b) => Number(!isPending(a)) - Number(!isPending(b))).map((item, i) => this.card(item, `${p}-${i}`, t)),
+          .children(listed.flatMap((group) => [
+            div().w_full().max_w(READING_WIDTH).flex_none().pt(2).text_size(11).font_semibold().text_color(group.id === here ? t.accent : t.muted).child(group.name),
+            ...group.items.map((item) => this.card(item, item.path.replace(/[^A-Za-z0-9]/g, "-"), t)),
           ]))
-          .when(!projects.length, (e) => e.child(div().p(4).text_color(t.dim).child(this.loading && !this.known ? text.loading : text.empty(DIR)))))
+          .when(!groups.length, (e) => e.child(div().p(4).text_color(t.dim).child(this.loading && !this.known ? text.loading : text.empty(DIR)))))
         .child(Scrollbar.vertical("dec-list").absolute().inset_0()))
       .when(Boolean(this.message), (e) => e.child(div().flex_none().px(12).py(8).border_t(1).border_color(t.border).text_size(11).text_color(t.blocked).child(this.message)));
   }

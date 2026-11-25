@@ -10,7 +10,8 @@ Herdr 的側邊面板，集中列出各個 agent session 等你決定的事。[E
 
 ## 功能
 
-- 列出每個有開 pane 的專案的 `.decisions/*.md`，依專案分組。
+- 列出每個有開 pane 的專案的 `.decisions/*.md`，依提出決策的 space 分組。
+- 上方有一排小 tab，每個 space 一個並標出待決策數量，點了只看那個 space。
 - session 提供幾個選項就有幾顆按鈕；沒提供選項就是「核准」。
 - 駁回時先輸入原因，原因會一起送給 session，讓它知道後續怎麼處理。
 - 每個程式碼區塊旁有「複製」按鈕，方便複製要你親自執行的指令。
@@ -129,5 +130,5 @@ make report-webhooks SINCE=7d
 npm test    # 在 repo 根目錄執行
 ```
 
-`decision-file.js`（檔案格式）和 `strings.js`（兩種語言）有對應的測試，在 [`test/`](test/)；防呆 hook 也有，`npm test` 會用 Python 的 `unittest` 一起跑。
+`decision-file.js`（檔案格式）、`groups.js`（依 space 分組）和 `strings.js`（兩種語言）有對應的測試，在 [`test/`](test/)；防呆 hook 也有，`npm test` 會用 Python 的 `unittest` 一起跑。
 [`RECIPE.md`](RECIPE.md) 是給 agent 重建這個 mod 用的說明。

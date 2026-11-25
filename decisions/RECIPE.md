@@ -12,8 +12,12 @@ to the file and tells the session.
 - A block on the right of the work area, 340 px wide, drawn as a card (10 px radius, 1 px border,
   theme `background`).
 - Header, 42 px: "Decisions", a count pill (`blocked` color when above zero), "Expand" / "Restore", and "»".
-- A scrolling list grouped by project (the git root's folder name; the focused pane's project first,
-  its name in `accent`). Pending decisions come before decided ones.
+- A scrolling list grouped by space. A decision belongs to the space its `requester` terminal is
+  in; when that terminal is gone, to a space with a pane in the project; otherwise the project is
+  its own group. The focused space's name is accented. Pending cards come first in each group, and
+  a card's meta line names its project.
+- With more than one group, a wrapping row of small tabs under the header: "All" and one per group,
+  each with its pending count. Clicking one shows only that group.
 - A decision card: status dot, title, "From <terminal> · <created>", the body as rendered markdown,
   then buttons. Pending cards have a `blocked`-colored border and start open; decided ones start
   folded and show the decision beside the title.

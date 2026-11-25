@@ -11,7 +11,8 @@ it. You click a choice; the panel records it in the file and tells the session.
 
 ## What it does
 
-- Lists `.decisions/*.md` from every project that has an open pane, grouped by project.
+- Lists `.decisions/*.md` from every project that has an open pane, grouped by the space that asked.
+- A row of small tabs, one per space with its pending count, shows one space at a time.
 - One button per option the session offered, or Approve when it offered none.
 - Reject asks for a reason and sends it along, so the session knows how to continue.
 - A Copy button beside every code block, for commands you have to run yourself.
@@ -138,5 +139,5 @@ files, and point `roots` at them to try the panel without a real session.
 npm test    # from the repository root
 ```
 
-`decision-file.js` (the file format) and `strings.js` (the two languages) are covered by tests in
+`decision-file.js` (the file format), `groups.js` (grouping by space) and `strings.js` (the two languages) are covered by tests in
 [`test/`](test/), and so is the guard, which `npm test` runs with Python's `unittest`. [`RECIPE.md`](RECIPE.md) describes the mod for an agent that rebuilds it.

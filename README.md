@@ -36,6 +36,7 @@ README has the block to add.
   RECIPE.md        the brief an agent can rebuild the mod from
   preview.png
   mods/<mod>/      the mod itself
+  hooks/           optional agent hooks that go with it
   test/            unit tests for its pure modules
 sync               copies mods between this repo and the running app
 ```
@@ -49,7 +50,7 @@ So mods are edited in place in the app's folder and copied back here:
 $EDITOR ~/.config/herdr-app/mods/decisions/main.js   # saving reloads the mod
 herdr-app check ~/.config/herdr-app/mods/decisions   # loads and renders it once
 ./sync pull decisions                                # app -> repo
-npm test                                             # Node 22 or newer, no dependencies
+npm test                                             # Node 22 or newer and Python 3, no dependencies
 ```
 
 Logic that needs no Herdr API lives in its own module (for example `decision-file.js`) so it can be

@@ -45,6 +45,30 @@ session                         面板                           你
 3. 讓 agent 知道這個約定：把 [`agent-rule.zh-TW.md`](agent-rule.zh-TW.md) 複製到 agent 讀規則的位置。
    Claude Code 是專案裡的 `.claude/rules/decisions.md`，或對所有專案生效的 `~/.claude/rules/`。
 4. 不想把待決策檔 commit 進去的話，在 `.gitignore` 加上 `.decisions/`。
+5. 選用，Claude Code 適用：安裝下面的防呆 hook，agent 忘記約定時會被提醒。
+
+### Claude Code 的防呆 hook
+
+約定就算已經在 agent 的 context 裡，它還是可能只在對話裡問、沒寫決策檔，這時面板上什麼都看不到。
+[`hooks/decision-file-guard.py`](hooks/decision-file-guard.py) 是一個 Stop hook，專門擋這種情況：
+回覆裡有請你決定的句型（「請你決定」「等你核准」、"your call"…），而這個終端在這一輪沒有寫 pending 的決策檔時，
+它會把 agent 擋回去一次，要它補寫決策檔，或說明其實不需要決定。
+
+```sh
+mkdir -p ~/.claude/hooks
+cp decisions/hooks/decision-file-guard.py ~/.claude/hooks/
+```
+
+再把它加進 `~/.claude/settings.json` 的 `Stop` hooks：
+
+```json
+{ "matcher": "", "hooks": [{ "type": "command", "command": "python3 ~/.claude/hooks/decision-file-guard.py", "timeout": 10 }] }
+```
+
+- 同一則回覆最多擋一次，session 不會卡住。
+- 回覆是在指向面板上已經 pending 的決策時會放行。
+- 不在 Herdr 裡（沒有 `HC_TERMINAL_ID`）或不在 git repo 時不作用。
+- 它是比對句型，所以回報「你決定了 A，已經做完」也會中，代價是多一輪回覆。
 
 ### 選項
 
@@ -95,7 +119,7 @@ make report-webhooks SINCE=7d
 ## 限制
 
 - 只支援本機專案，其他機器上的 pane 會被略過。
-- 通知 session 用的是 `hc send`，agent 會把它當成通知而不是你的指令。約定檔要求 agent 重新讀決策檔並照做，但沒有強制機制。
+- 通知 session 用的是 `hc send`，agent 會把它當成通知而不是你的指令。約定檔要求 agent 重新讀決策檔並照做，但沒有強制機制。防呆 hook 只管另一個方向：agent 問了卻沒寫決策檔。
 - Dock 數字是所有 mod 共用的，最後設定的那個生效。
 - 放大是把版面裡 id 為 `main` 的區塊隱藏；版面沒有這個區塊就不能放大。
 
@@ -105,5 +129,5 @@ make report-webhooks SINCE=7d
 npm test    # 在 repo 根目錄執行
 ```
 
-`decision-file.js`（檔案格式）和 `strings.js`（兩種語言）有對應的測試，在 [`test/`](test/)。
+`decision-file.js`（檔案格式）和 `strings.js`（兩種語言）有對應的測試，在 [`test/`](test/)；防呆 hook 也有，`npm test` 會用 Python 的 `unittest` 一起跑。
 [`RECIPE.md`](RECIPE.md) 是給 agent 重建這個 mod 用的說明。

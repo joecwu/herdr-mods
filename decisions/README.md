@@ -48,6 +48,33 @@ The file is the source of truth. The message to the session is only a nudge to r
    rules. For Claude Code that is `.claude/rules/decisions.md` in a project, or `~/.claude/rules/`
    for every project.
 4. Keep pending files out of git: add `.decisions/` to `.gitignore`, unless you want the record.
+5. Optional, for Claude Code: install the guard described below, so an agent that forgets the rule
+   is reminded.
+
+### Guard for Claude Code
+
+An agent that has the rule in context can still ask in the chat and write no file, and then the
+panel shows nothing. [`hooks/decision-file-guard.py`](hooks/decision-file-guard.py) is a Stop hook
+that catches this: when a reply asks you to decide ("your call", "once you approve", 「請你決定」…)
+and the terminal wrote no pending decision file during that turn, it sends the agent back once to
+write one, or to say that no decision is needed.
+
+```sh
+mkdir -p ~/.claude/hooks
+cp decisions/hooks/decision-file-guard.py ~/.claude/hooks/
+```
+
+Then add it to the `Stop` hooks in `~/.claude/settings.json`:
+
+```json
+{ "matcher": "", "hooks": [{ "type": "command", "command": "python3 ~/.claude/hooks/decision-file-guard.py", "timeout": 10 }] }
+```
+
+- It blocks a reply at most once, so a session is never stuck.
+- A reply that points at a decision already pending on the panel passes.
+- It stays out of the way outside Herdr (no `HC_TERMINAL_ID`) and outside a git repository.
+- It matches phrases, so it also fires on a report such as "you decided A, done". That costs one
+  extra reply.
 
 ### Options
 
@@ -100,7 +127,8 @@ files, and point `roots` at them to try the panel without a real session.
 
 - Local projects only. Panes on other machines are skipped.
 - The session is told with `hc send`, which agents treat as a notice. The rule file tells them to
-  re-read the decision file and act on it; nothing enforces that.
+  re-read the decision file and act on it; nothing enforces that. The guard only covers the other
+  direction, an agent that asks without writing a file.
 - The Dock badge is shared by all mods; the last one to set it wins.
 - Expanding hides the layout block with the id `main`. A layout without one cannot expand.
 
@@ -111,4 +139,4 @@ npm test    # from the repository root
 ```
 
 `decision-file.js` (the file format) and `strings.js` (the two languages) are covered by tests in
-[`test/`](test/). [`RECIPE.md`](RECIPE.md) describes the mod for an agent that rebuilds it.
+[`test/`](test/), and so is the guard, which `npm test` runs with Python's `unittest`. [`RECIPE.md`](RECIPE.md) describes the mod for an agent that rebuilds it.

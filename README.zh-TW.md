@@ -31,6 +31,7 @@ mod 要放進版面才會出現在視窗上，各 mod 的 README 有要加的區
   RECIPE.md        讓 agent 從零重建這個 mod 的說明
   preview.png
   mods/<mod>/      mod 本體
+  hooks/           搭配使用的 agent hook（選用）
   test/            純邏輯模組的單元測試
 sync               在這個 repo 和執行中的 app 之間複製 mod
 ```
@@ -43,7 +44,7 @@ Herdr 在 mod 資料夾內的檔案存檔時會熱載入，但資料夾是 symli
 $EDITOR ~/.config/herdr-app/mods/decisions/main.js   # 存檔即重新載入
 herdr-app check ~/.config/herdr-app/mods/decisions   # 載入並渲染一次
 ./sync pull decisions                                # app → repo
-npm test                                             # 需要 Node 22 以上，沒有相依套件
+npm test                                             # 需要 Node 22 以上和 Python 3，沒有相依套件
 ```
 
 不需要 Herdr API 的邏輯放在獨立模組（例如 `decision-file.js`），用 `node --test` 測試；`main.js` 只放畫面。

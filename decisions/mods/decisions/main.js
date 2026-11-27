@@ -14,8 +14,9 @@ import { v_flex, h_flex, InputState, Input, TextView, Scrollbar } from "gpui-bas
 import { parse, withMeta, decidedMeta, segments, PENDING, APPROVED, REJECTED } from "./decision-file.js";
 import { strings } from "./strings.js";
 import { bySpace } from "./groups.js";
-import { machineOf, placeKey, mergeSnapshots, newlyPending } from "./places.js";
+import { machineOf, placeKey, requesterLabel, mergeSnapshots, newlyPending } from "./places.js";
 import { Refresher, DIR } from "./refresh.js";
+import { tellRequester } from "./tell.js";
 import { panes, spaces, machines, focused, props, layout, exec, hc, readTextFile, writeTextFile, watchFolder, theme, settings, notify, setBadge, checking, run } from "herdr";
 
 const REFRESH_MS = 15000;
@@ -102,14 +103,8 @@ export default class Decisions extends View {
     cx.notify();
   }
 
-  // Who asked, as the person knows it: the requester's tab title when the tab was named (by
-  // hand or a tab-title mod), else its pane's name, else the terminal address.
-  who(requester) {
-    const pane = panes().find((p) => p.terminal === requester);
-    if (!pane) return requester;
-    const tab = spaces().flatMap((space) => space.tabs).find((tab) => tab.id === pane.tab);
-    return (tab?.named && tab.name) || pane.name || requester;
-  }
+  // Who asked, for the person to read. hc send and agent.focus keep the full address.
+  who(requester) { return requesterLabel(requester, panes(), spaces()); }
 
   label(decision) {
     return decision === APPROVED ? this.text.approve : decision === REJECTED ? this.text.rejected : decision;
@@ -119,10 +114,7 @@ export default class Decisions extends View {
   async tell(item, decision, note) {
     if (!item.requester) return this.text.noRequester;
     const message = this.text.sessionMessage({ title: item.title, rejected: decision === REJECTED, label: this.label(decision), note, path: item.path, dir: DIR });
-    try {
-      const r = await hc(["send", item.requester, message]);
-      return r.code === 0 ? null : this.text.notifyFailed(item.requester, (r.stderr || r.stdout).trim());
-    } catch (e) { return this.text.notifyFailed(item.requester, e); }
+    return tellRequester(hc, { address: item.requester, label: this.who(item.requester), message }, this.text);
   }
 
   decide(item, decision, cx) {

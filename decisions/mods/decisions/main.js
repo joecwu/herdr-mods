@@ -14,6 +14,7 @@ import { v_flex, h_flex, InputState, Input, TextView, Scrollbar } from "gpui-bas
 import { parse, withMeta, decidedMeta, segments, PENDING, APPROVED, REJECTED } from "./decision-file.js";
 import { strings } from "./strings.js";
 import { bySpace } from "./groups.js";
+import { machineOf, placeKey, addressOf } from "./places.js";
 import { panes, spaces, focused, props, layout, exec, hc, readTextFile, writeTextFile, watchFolder, theme, settings, notify, setBadge, checking, run } from "herdr";
 
 const DIR = ".decisions";
@@ -24,16 +25,11 @@ const NARROW_BELOW = 120;
 const MAIN_BLOCK = "main";
 const READING_WIDTH = 860;
 
-// Remote pane, tab and terminal ids carry a "machine/" prefix; `on` is that machine, null here.
-const machineOf = (id) => (id?.includes("/") ? id.slice(0, id.indexOf("/")) : null);
-const placeKey = (on, path) => (on ? `${on}:${path}` : path);
 const paneFolders = () => {
   const seen = new Map();
   for (const p of panes()) if (p.cwd) seen.set(placeKey(machineOf(p.pane), p.cwd), { on: machineOf(p.pane), folder: p.cwd });
   return [...seen.values()];
 };
-// A requester as hc addresses it from here: remote sessions write their bare $HC_TERMINAL_ID.
-const addressOf = (on, requester) => (on && requester && !requester.includes("/") ? `${on}/${requester}` : requester);
 const isPending = (item) => item.status === PENDING;
 
 export default class Decisions extends View {

@@ -33,3 +33,14 @@ test("the message leaves the note out when there is none", () => {
   assert.ok(message.includes("was decided: Approve."));
   assert.ok(!message.includes("Note:"));
 });
+
+test("the can't reach line says so only when the last read is still shown", () => {
+  for (const lang of ["en", "zh-TW"]) {
+    const text = strings(lang);
+
+    assert.ok(text.unreachable("m5", false).includes("m5"), lang);
+    assert.ok(text.unreachable("m5", true).startsWith(text.unreachable("m5", false)), lang);
+    assert.notEqual(text.unreachable("m5", true), text.unreachable("m5", false), lang);
+  }
+  assert.equal(strings("en").unreachable("m5", true), "Can't reach m5, showing the last read");
+});

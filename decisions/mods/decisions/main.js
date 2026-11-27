@@ -14,11 +14,10 @@ import { v_flex, h_flex, InputState, Input, TextView, Scrollbar } from "gpui-bas
 import { parse, withMeta, decidedMeta, segments, PENDING, APPROVED, REJECTED } from "./decision-file.js";
 import { strings } from "./strings.js";
 import { bySpace } from "./groups.js";
-import { machineOf, placeKey, addressOf } from "./places.js";
-import { Roots } from "./refresh.js";
-import { panes, spaces, focused, props, layout, exec, hc, readTextFile, writeTextFile, watchFolder, theme, settings, notify, setBadge, checking, run } from "herdr";
+import { machineOf, placeKey, mergeSnapshots, newlyPending } from "./places.js";
+import { Refresher, DIR } from "./refresh.js";
+import { panes, spaces, machines, focused, props, layout, exec, hc, readTextFile, writeTextFile, watchFolder, theme, settings, notify, setBadge, checking, run } from "herdr";
 
-const DIR = ".decisions";
 const REFRESH_MS = 15000;
 const RAIL_PX = 44;
 const OPEN_PX = 340;
@@ -26,34 +25,17 @@ const NARROW_BELOW = 120;
 const MAIN_BLOCK = "main";
 const READING_WIDTH = 860;
 
-const paneFolders = () => {
-  const seen = new Map();
-  for (const p of panes()) if (p.cwd) seen.set(placeKey(machineOf(p.pane), p.cwd), { on: machineOf(p.pane), folder: p.cwd });
-  return [...seen.values()];
-};
 const isPending = (item) => item.status === PENDING;
 
 export default class Decisions extends View {
   init(_props, cx) {
-    this.projects = []; this.roots = new Roots(exec); this.known = false; this.announced = null; this.watching = new Set();
+    this.projects = []; this.warnings = []; this.known = false; this.announced = new Set(); this.watching = new Set();
     this.text = strings(props()?.lang); this.fixedRoots = Array.isArray(props()?.roots) ? props().roots : null;
     this.toggled = new Set(); this.notes = new Map(); this.rejecting = new Set(); this.busy = new Set(); this.message = null; this.badge = null; this.tab = null;
+    this.refresher = new Refresher({ exec, readTextFile, panes, machines, onPublish: (change) => this.publish(change, cx) }, this.fixedRoots);
     if (checking()) return;
     this.refresh(cx);
     cx.timer.every(REFRESH_MS, (cx) => this.refresh(cx));
-  }
-
-  // `root` is the folder on machine `on`; the project's `root` field is that place's key.
-  async readProject(root, on = null) {
-    const dir = `${root}/${DIR}`;
-    const found = await exec("find", [dir, "-maxdepth", "1", "-type", "f", "-name", "*.md"], { on });
-    if (found.code !== 0) return null;
-    const items = [];
-    for (const path of found.stdout.split("\n").filter(Boolean).sort()) {
-      const item = parse(await readTextFile(path, { on }), path);
-      if (item) items.push({ ...item, on, key: placeKey(on, path), requester: addressOf(on, item.requester) });
-    }
-    return { root: placeKey(on, root), dir, on, name: root.split("/").pop() + (on ? ` @${on}` : ""), items };
   }
 
   // Only this machine's folders can be watched; remote ones are read on the refresh timer.
@@ -67,49 +49,34 @@ export default class Decisions extends View {
   }
 
   refresh(cx) {
-    if (this.loading) { this.again = true; return; }
-    this.loading = true;
-    cx.spawn(async (cx) => {
-      try {
-        const roots = new Map();
-        if (this.fixedRoots) this.fixedRoots.forEach((root) => roots.set(root, { root, on: null }));
-        else {
-          for (const { folder, on } of paneFolders()) {
-            const { root } = await this.roots.of(folder, on);
-            roots.set(placeKey(on, root), { root, on });
-          }
-        }
-        const projects = [];
-        for (const { root, on } of roots.values()) {
-          // An unreachable machine skips its projects instead of failing the whole panel.
-          const project = await this.readProject(root, on).catch(() => null);
-          if (!project) continue;
-          projects.push(project);
-          this.watch(project.dir, on, cx);
-        }
-        if (!this.fixedRoots) this.announce(projects);
-        this.known = true;
-        this.projects = projects;
-        this.message = null;
-      } catch (e) { this.message = this.text.readFailed(e); }
-      finally {
-        this.loading = false;
-        cx.notify();
-        if (this.again) { this.again = false; this.refresh(cx); }
-      }
-    });
+    cx.spawn(() => this.refresher.refresh());
   }
 
-  // Toasts for decisions that appeared since the last read, and the Dock badge.
-  announce(projects) {
-    const pending = projects.flatMap((p) => p.items.filter(isPending).map((i) => ({ ...i, project: p.name })));
-    if (this.announced) {
-      for (const item of pending) {
-        if (!this.announced.has(item.key)) notify({ title: this.text.toastTitle(item.project), body: item.title, level: "warning" });
-      }
-    }
-    this.announced = new Set(pending.map((i) => i.key));
-    const badge = pending.length ? String(pending.length) : null;
+  // One machine's read landed: show every machine's last read, and announce what is new.
+  publish({ on, first }, cx) {
+    const { projects, warnings } = mergeSnapshots(this.refresher.machines);
+    this.message = null;
+    for (const project of projects) if (project.found) this.watch(project.dir, project.on, cx);
+    if (!this.fixedRoots) this.announce(projects, new Set(first ? [on] : []));
+    this.projects = projects;
+    this.warnings = warnings.map((w) => this.warning(w));
+    this.known = true;
+    cx.notify();
+  }
+
+  warning(w) {
+    if (w.kind === "unreachable") return this.text.unreachable(w.machine, w.stale);
+    if (w.kind === "projectFailed") return this.text.projectReadFailed(w.project, w.why);
+    return this.text.readFailed(w.why);
+  }
+
+  // Toasts for decisions that appeared since the last read, and the Dock badge. A machine's
+  // first read only sets what counts as seen.
+  announce(projects, quiet) {
+    const { fresh, announced } = newlyPending(this.announced, projects, quiet);
+    for (const item of fresh) notify({ title: this.text.toastTitle(item.project), body: item.title, level: "warning" });
+    this.announced = announced;
+    const badge = announced.size ? String(announced.size) : null;
     if (badge !== this.badge) { this.badge = badge; setBadge(badge); }
   }
 
@@ -225,7 +192,7 @@ export default class Decisions extends View {
       if (!place) continue;
       if (pane.terminal) terminals.set(pane.terminal, place);
       const on = machineOf(pane.pane);
-      const root = this.roots.get(on, pane.cwd) ?? pane.cwd;
+      const root = this.refresher.roots.get(on, pane.cwd) ?? pane.cwd;
       if (root && !roots.has(placeKey(on, root))) roots.set(placeKey(on, root), place);
     }
     return { order, terminals, roots };
@@ -296,6 +263,7 @@ export default class Decisions extends View {
     const shown = groups.filter((group) => group.id === this.tab);
     const listed = shown.length ? shown : groups;
     const pick = (id) => (_e, cx) => { this.tab = id; cx.notify(); };
+    const lines = [...this.warnings, this.message].filter(Boolean);
     const root = v_flex().id("decisions").size_full().min_h(0).rounded(10).overflow_hidden().bg(t.background).border_1().border_color(t.border)
       .text_color(t.foreground).text_size(13).on_size_change((size, cx) => { this.narrow = size.width < NARROW_BELOW; cx.notify(); });
     if (this.narrow) {
@@ -320,8 +288,9 @@ export default class Decisions extends View {
             div().w_full().max_w(READING_WIDTH).flex_none().pt(2).text_size(11).font_semibold().text_color(group.id === here ? t.accent : t.muted).child(group.name),
             ...group.items.map((item) => this.card(item, item.key.replace(/[^A-Za-z0-9]/g, "-"), t)),
           ]))
-          .when(!groups.length, (e) => e.child(div().p(4).text_color(t.dim).child(this.loading && !this.known ? text.loading : text.empty(DIR)))))
+          .when(!groups.length, (e) => e.child(div().p(4).text_color(t.dim).child(this.known ? text.empty(DIR) : text.loading))))
         .child(Scrollbar.vertical("dec-list").absolute().inset_0()))
-      .when(Boolean(this.message), (e) => e.child(div().flex_none().px(12).py(8).border_t(1).border_color(t.border).text_size(11).text_color(t.blocked).child(this.message)));
+      .when(lines.length > 0, (e) => e.child(v_flex().flex_none().px(12).py(8).gap(2).border_t(1).border_color(t.border).text_size(11).text_color(t.blocked)
+        .children(lines.map((line) => div().child(line)))));
   }
 }

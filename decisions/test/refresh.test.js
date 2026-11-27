@@ -150,6 +150,44 @@ test("projects keep the order of their first panes, across machines", async () =
   assert.deepEqual(w.last.titles, ["remote", "local", "remote web"]);
 });
 
+test("a project keeps its place by its other panes when its first pane closes", async () => {
+  const w = new World();
+  w.pane("m5", "/one/sub1"); w.pane("m5", "/one/sub2"); w.repo("m5", "/one", "/one/sub1", "/one/sub2");
+  w.write("m5", "/one/.decisions/a.md", decision("one"));
+  w.pane("m5", "/two"); w.repo("m5", "/two"); w.write("m5", "/two/.decisions/a.md", decision("two"));
+  await w.refresher.refresh();
+  const before = w.publishes.length;
+
+  w.panes = w.panes.filter((p) => p.cwd !== "/one/sub1");
+  const release = w.hold("m5");
+  const local = w.next((view) => view.on === null);
+  const done = w.refresher.refresh();
+  await local;
+  release();
+  await done;
+
+  const views = w.publishes.slice(before);
+  assert.deepEqual(views.map((view) => view.on), [null, "m5"]);
+  for (const view of views) assert.deepEqual(view.titles, ["one", "two"], `after ${view.on ?? "this machine"} published`);
+});
+
+test("projects with no pane open follow, in the order they were last shown", async () => {
+  const w = new World();
+  w.pane("m6", "/c"); w.repo("m6", "/c"); w.write("m6", "/c/.decisions/c.md", decision("c"));
+  w.pane("m5", "/a"); w.repo("m5", "/a"); w.write("m5", "/a/.decisions/a.md", decision("a"));
+  w.pane(null, "/b"); w.repo(null, "/b"); w.write(null, "/b/.decisions/b.md", decision("b"));
+  await w.refresher.refresh();
+  w.panes = [w.panes[1], w.panes[2], w.panes[0]];
+  await w.refresher.refresh();
+  assert.deepEqual(w.last.titles, ["a", "b", "c"]);
+
+  w.closePanes("m5"); w.closePanes("m6");
+  w.layouts.set("m5", "unavailable"); w.layouts.set("m6", "unavailable");
+  await w.refresher.refresh();
+
+  assert.deepEqual(w.last.titles, ["b", "a", "c"]);
+});
+
 test("reads on another machine time out after 5 s, and reads here keep exec's default", async () => {
   const w = twoMachines();
   await w.refresher.refresh();

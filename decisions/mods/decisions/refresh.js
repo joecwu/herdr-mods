@@ -39,10 +39,9 @@ export class Roots {
 /**
  * Keeps the last read of every machine in `machines`: machine name (null for this one) to
  * `{ projects, state, baselined, reading, again, error }`. `projects` maps a project's key to
- * `{ root, dir, on, name, items, found, error, folder }`, where `items` is the last confirmed read
- * (null before one), `error` why this round's read failed, and `folder` the key of its first pane
- * folder. `state` is "ok" or "unreachable" after a read, `baselined` true once a project under a
- * confirmed root read without error.
+ * `{ root, dir, on, name, items, found, error }`, where `items` is the last confirmed read (null
+ * before one) and `error` why this round's read failed. `state` is "ok" or "unreachable" after a
+ * read, `baselined` true once a project under a confirmed root read without error.
  *
  * Each machine reads on its own and publishes when it is done, so a slow one holds up no other.
  * A machine counts as unreachable only on evidence: Herdr lists it unavailable, or this round's
@@ -61,18 +60,29 @@ export class Refresher {
     this.roots = new Roots(io.exec);
     this.machines = new Map();
     this.starting = null;
+    this.order = [];
   }
 
   /** The project a pane's folder belongs to, for grouping. With fixed roots no pane maps to one. */
   rootOf(on, folder) { return this.fixedRoots ? null : this.roots.get(on, folder) ?? folder; }
 
-  /** Every machine's last read as mergeSnapshots gives it, each project placed by its first pane. */
+  /**
+   * Every machine's last read as mergeSnapshots gives it, each project placed by its first pane
+   * open now: one in its root or under it. Projects with no pane open follow, in the order the last
+   * snapshot gave them.
+   */
   snapshot() {
     const merged = mergeSnapshots(this.machines);
     if (this.fixedRoots) return merged;
-    const order = this.io.panes().filter((p) => p.cwd).map((p) => placeKey(machineOf(p.pane), p.cwd));
-    const rank = (project) => { const i = order.indexOf(project.folder); return i < 0 ? order.length : i; };
+    const folders = this.io.panes().filter((p) => p.cwd).map((p) => placeKey(machineOf(p.pane), p.cwd));
+    const rank = (project) => {
+      const pane = folders.findIndex((f) => f === project.root || f.startsWith(`${project.root}/`));
+      if (pane >= 0) return pane;
+      const before = this.order.indexOf(project.root);
+      return folders.length + (before < 0 ? this.order.length : before);
+    };
     merged.projects.sort((a, b) => rank(a) - rank(b));
+    this.order = merged.projects.map((p) => p.root);
     return merged;
   }
 
@@ -142,7 +152,7 @@ export class Refresher {
       const { root, confirmed } = this.fixedRoots ? { root: folder, confirmed: true } : await this.roots.of(folder, on);
       const key = placeKey(on, root);
       if (projects.has(key)) continue;
-      const project = { ...(await this.project(root, on, confirmed, entry.projects.get(key))), folder: placeKey(on, folder) };
+      const project = await this.project(root, on, confirmed, entry.projects.get(key));
       projects.set(key, project);
       if (confirmed && !project.error) confirmedRead = true;
     }

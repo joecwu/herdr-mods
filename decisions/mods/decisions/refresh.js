@@ -136,13 +136,13 @@ export class Refresher {
     return this.io.exec("true", [], readOptions(on)).then((r) => r.code === 0, () => false);
   }
 
-  // A read under a root git did not confirm only adds: finding nothing there keeps the last read.
+  // A read under a root git did not confirm only adds to the last read: a card it misses stays.
   async project(root, on, confirmed, last) {
     const dir = `${root}/${DIR}`;
     const project = { root: placeKey(on, root), dir, on, name: root.split("/").pop() + (on ? ` @${on}` : "") };
     try {
       const read = await this.readDir(dir, on);
-      if (!confirmed && !read.items.length && last?.items?.length) return { ...last, error: null };
+      if (!confirmed && last?.items) read.items = [...new Map([...last.items, ...read.items].map((i) => [i.key, i])).values()];
       return { ...project, ...read, error: null };
     } catch (e) {
       return { ...project, items: last?.items ?? null, found: false, error: reason(e) };

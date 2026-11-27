@@ -337,6 +337,23 @@ test("a read under an unconfirmed root never clears that project's cards", async
   assert.deepEqual(w.last.titles, ["x1"]);
 });
 
+test("a read under an unconfirmed root only adds cards, so none drops out and comes back as new", async () => {
+  const w = new World();
+  w.pane("m5", "/srv"); w.repo("m5", "/srv");
+  w.pane("m5", "/srv/x");
+  w.rules.push((command, _args, options) => (command === "git" && options.cwd === "/srv/x" ? new Error("git timed out") : undefined));
+  const badges = [];
+  for (const files of [["a", "b"], ["b"], ["a", "b"]]) {
+    for (const name of ["a", "b"]) w.write("m5", `/srv/x/.decisions/${name}.md`, files.includes(name) ? decision(name) : null);
+    await w.refresher.refresh();
+    badges.push(w.last.badge);
+  }
+
+  assert.deepEqual(badges, [2, 2, 2]);
+  assert.deepEqual(w.last.titles, ["a", "b"]);
+  assert.deepEqual(w.toasts, []);
+});
+
 test("fixed roots are read on this machine as they are, with no git and no other machine", async () => {
   const w = new World(["/fixed"]);
   w.pane("m5", "/srv"); w.write("m5", "/srv/.decisions/b.md", decision("remote"));

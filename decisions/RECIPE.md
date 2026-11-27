@@ -15,15 +15,19 @@ session.
 - Header, 42 px: "Decisions", a count pill (`blocked` color when above zero), "Expand" / "Restore", and "»".
 - A scrolling list grouped by space. A decision belongs to the space its `requester` terminal is
   in; when that terminal is gone, to a space with a pane in the project; otherwise the project is
-  its own group. The focused space's name is accented. Pending cards come first in each group, and
-  a card's meta line names its project.
+  its own group. The focused space's name is accented. Pending cards come first in each group,
+  projects keep the order of their first panes across machines, and a card's meta line names its
+  project. Until every machine of the first refresh has finished one read, worked or not, an empty
+  list says "Loading…".
 - With more than one group, a wrapping row of small tabs under the header: "All" and one per group,
   each with its pending count. Clicking one shows only that group.
 - A decision card: status dot, title, "<project> · From <who> · <created>", the body as rendered
   markdown, then buttons. A project on another machine is named "<folder> @<machine>". <who> is the
   requester's pane name, else its tab's name when someone named the tab, else its address. When
   another terminal pane in that tab goes by the same name, " · tN" (its terminal id) is added; if
-  that is still shared, the full address is shown. Pending cards have a `blocked`-colored border
+  that is still shared, the full address is shown. A label that still meets another pane's in the
+  tab, as when a pane is named after another's address, gets " (<address>)" until none is shared.
+  Pending cards have a `blocked`-colored border
   and start open; decided ones start folded and show the decision beside the title.
 - Each fenced code block in the body is drawn as its own box in the terminal font with a "Copy"
   button.
@@ -39,7 +43,8 @@ session.
   passing `on`, and keyed `machine:path` so equal paths on two machines stay apart. The git root is
   cached only when git confirmed it: the root it printed, or the folder itself when git says it is
   not a repository. A lookup that could not run or failed otherwise reads the folder for that round
-  and asks git again next refresh; such a read never replaces cards with an empty set.
+  and asks git again next refresh; such a read only adds cards and updates those it finds, and
+  never removes one.
 - It refreshes when a local `.decisions` folder changes and every 15 seconds. Each machine reads
   on its own and its cards update when it finishes, so a slow machine holds up no other. Each
   machine reads again after its current read when a refresh came in meanwhile.
@@ -52,8 +57,9 @@ session.
   failed"; the machine's other projects update. A missing `.decisions` folder is an empty project.
 - A machine's last read is kept while it has panes or is not ready, and dropped once it has no
   pane and `machines()` lists it `ready`.
-- A decision that appears after a machine's first read posts a notification; the first read of each
-  machine, including one reached later, only sets what has been seen. Decisions are tracked by
+- A decision that appears after a machine's baseline posts a notification. A machine gets its
+  baseline from its first read of a project under a confirmed git root that read without error;
+  reads before that, on a machine reached later too, only set what has been seen. Decisions are tracked by
   machine and path, so a machine that comes back posts nothing again. The Dock badge shows the
   pending count, which keeps an offline machine's last read.
 - Buttons: one per entry in the file's `options`, or "Approve" when there are none; "Reject…"; "+ Note";
@@ -80,14 +86,14 @@ session.
   Shipped layouts are read-only: `layout.clone` first.
 - `mods/decisions/main.js` is the view. These have no Herdr imports, so `node --test` covers them:
   `decision-file.js` (parsing and rewriting the file), `groups.js` (grouping by space),
-  `places.js` (machine prefixes, place keys, requester addresses and labels, merging the machines'
-  reads, which decisions to announce), `refresh.js` (the `Refresher`: reading every machine, with
+  `places.js` (machine prefixes, place keys, requester addresses and labels, where spaces,
+  terminals and projects are, merging the machines' reads, which decisions to announce), `refresh.js` (the `Refresher`: reading every machine, with
   Herdr's I/O passed in; the timer and the folder watch call its `refresh()`), `tell.js` (`hc send`,
   with `hc` passed in), `strings.js` (English and Traditional Chinese). `mod.json` is
   `{ "place": "none" }`.
 - Props: `lang` (`"en"` default, `"zh-TW"`), `block` (the block's id), `roots` (folders on this
   machine to show as they are instead of the open panes' projects; such a copy reads no other
-  machine, posts no notifications and sets no badge).
+  machine, posts no notifications, sets no badge, and groups no project by a pane's folder).
 - `herdr`: `panes`, `spaces`, `machines`, `focused`, `layout`, `props`, `theme`, `settings`, `exec`
   (`true` as a probe, `git rev-parse`, `find`, a shell fallback for writing), `hc` (`send`),
   `readTextFile`, `writeTextFile`, `watchFolder`, `notify`, `setBadge`, `checking`, `run`

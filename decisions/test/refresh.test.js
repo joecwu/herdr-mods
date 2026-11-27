@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Refresher } from "../mods/decisions/refresh.js";
-import { placeKey, placesOf, mergeSnapshots, newlyPending } from "../mods/decisions/places.js";
+import { placeKey, placesOf, newlyPending } from "../mods/decisions/places.js";
 import { bySpace } from "../mods/decisions/groups.js";
 
 const decision = (title, status = "pending") => `---\ntitle: ${title}\nstatus: ${status}\nrequester: t1\n---\nBody\n`;
@@ -71,7 +71,7 @@ class World {
   }
 
   published(change) {
-    const { projects, warnings } = mergeSnapshots(this.refresher.machines);
+    const { projects, warnings } = this.refresher.snapshot();
     const { fresh, announced } = newlyPending(this.announced, projects, new Set(change.first ? [change.on] : []));
     this.announced = announced;
     this.toasts.push(...fresh.map((item) => item.title));
@@ -138,6 +138,16 @@ test("the first load lasts until every machine it started with has answered once
   await done;
   assert.equal(w.last.on, "m5");
   assert.equal(w.last.loaded, true);
+});
+
+test("projects keep the order of their first panes, across machines", async () => {
+  const w = new World();
+  w.pane("m5", "/srv"); w.repo("m5", "/srv"); w.write("m5", "/srv/.decisions/b.md", decision("remote"));
+  w.pane(null, "/repo"); w.repo(null, "/repo"); w.write(null, "/repo/.decisions/a.md", decision("local"));
+  w.pane("m5", "/web"); w.repo("m5", "/web"); w.write("m5", "/web/.decisions/c.md", decision("remote web"));
+  await w.refresher.refresh();
+
+  assert.deepEqual(w.last.titles, ["remote", "local", "remote web"]);
 });
 
 test("reads on another machine time out after 5 s, and reads here keep exec's default", async () => {
@@ -391,7 +401,7 @@ test("fixed roots are not grouped into the space of a pane open on the same fold
 
   const spaces = [{ id: "s1", name: "Space", tabs: [{ id: "tab", name: "tab", named: false }] }];
   const places = placesOf(spaces, w.panes, (on, folder) => w.refresher.rootOf(on, folder));
-  const groups = bySpace(mergeSnapshots(w.refresher.machines).projects, places);
+  const groups = bySpace(w.refresher.snapshot().projects, places);
 
   assert.deepEqual(groups.map((g) => [g.id, g.items.map((i) => i.title)]), [["project:/fixed", ["fixed"]]]);
 });

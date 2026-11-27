@@ -14,7 +14,7 @@ import { v_flex, h_flex, InputState, Input, TextView, Scrollbar } from "gpui-bas
 import { parse, withMeta, decidedMeta, segments, PENDING, APPROVED, REJECTED } from "./decision-file.js";
 import { strings } from "./strings.js";
 import { bySpace } from "./groups.js";
-import { requesterLabel, placesOf, mergeSnapshots, newlyPending } from "./places.js";
+import { requesterLabel, placesOf, newlyPending } from "./places.js";
 import { Refresher, DIR } from "./refresh.js";
 import { tellRequester } from "./tell.js";
 import { panes, spaces, machines, focused, props, layout, exec, hc, readTextFile, writeTextFile, watchFolder, theme, settings, notify, setBadge, checking, run } from "herdr";
@@ -55,7 +55,7 @@ export default class Decisions extends View {
 
   // One machine's read landed: show every machine's last read, and announce what is new.
   publish({ on, first }, cx) {
-    const { projects, warnings } = mergeSnapshots(this.refresher.machines);
+    const { projects, warnings } = this.refresher.snapshot();
     this.message = null;
     for (const project of projects) if (project.found) this.watch(project.dir, project.on, cx);
     if (!this.fixedRoots) this.announce(projects, new Set(first ? [on] : []));

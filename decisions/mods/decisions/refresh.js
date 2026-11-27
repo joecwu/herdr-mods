@@ -2,7 +2,7 @@
 // I/O is passed in, so this runs under `node --test`.
 
 import { parse } from "./decision-file.js";
-import { machineOf, placeKey, addressOf } from "./places.js";
+import { machineOf, placeKey, addressOf, mergeSnapshots } from "./places.js";
 
 export const DIR = ".decisions";
 // exec waits 30 s by default; a slow machine should not keep its cards that stale.
@@ -39,9 +39,10 @@ export class Roots {
 /**
  * Keeps the last read of every machine in `machines`: machine name (null for this one) to
  * `{ projects, state, baselined, reading, again, error }`. `projects` maps a project's key to
- * `{ root, dir, on, name, items, found, error }`, where `items` is the last confirmed read (null
- * before one) and `error` why this round's read failed. `state` is "ok" or "unreachable" after a
- * read, `baselined` true once a project under a confirmed root read without error.
+ * `{ root, dir, on, name, items, found, error, folder }`, where `items` is the last confirmed read
+ * (null before one), `error` why this round's read failed, and `folder` the key of its first pane
+ * folder. `state` is "ok" or "unreachable" after a read, `baselined` true once a project under a
+ * confirmed root read without error.
  *
  * Each machine reads on its own and publishes when it is done, so a slow one holds up no other.
  * A machine counts as unreachable only on evidence: Herdr lists it unavailable, or this round's
@@ -64,6 +65,16 @@ export class Refresher {
 
   /** The project a pane's folder belongs to, for grouping. With fixed roots no pane maps to one. */
   rootOf(on, folder) { return this.fixedRoots ? null : this.roots.get(on, folder) ?? folder; }
+
+  /** Every machine's last read as mergeSnapshots gives it, each project placed by its first pane. */
+  snapshot() {
+    const merged = mergeSnapshots(this.machines);
+    if (this.fixedRoots) return merged;
+    const order = this.io.panes().filter((p) => p.cwd).map((p) => placeKey(machineOf(p.pane), p.cwd));
+    const rank = (project) => { const i = order.indexOf(project.folder); return i < 0 ? order.length : i; };
+    merged.projects.sort((a, b) => rank(a) - rank(b));
+    return merged;
+  }
 
   /** True once every machine of the first refresh has finished a read, whether or not it worked. */
   get loaded() { return this.starting?.size === 0; }
@@ -131,7 +142,7 @@ export class Refresher {
       const { root, confirmed } = this.fixedRoots ? { root: folder, confirmed: true } : await this.roots.of(folder, on);
       const key = placeKey(on, root);
       if (projects.has(key)) continue;
-      const project = await this.project(root, on, confirmed, entry.projects.get(key));
+      const project = { ...(await this.project(root, on, confirmed, entry.projects.get(key))), folder: placeKey(on, folder) };
       projects.set(key, project);
       if (confirmed && !project.error) confirmedRead = true;
     }

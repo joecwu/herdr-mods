@@ -162,7 +162,10 @@ export class Refresher {
     const project = { root: placeKey(on, root), dir, on, name: root.split("/").pop() + (on ? ` @${on}` : "") };
     try {
       const read = await this.readDir(dir, on);
-      if (!confirmed && last?.items) read.items = [...new Map([...last.items, ...read.items].map((i) => [i.key, i])).values()];
+      if (!confirmed && last?.items) {
+        const merged = new Map([...last.items, ...read.items].map((i) => [i.key, i]));
+        read.items = [...merged.values()].sort((x, y) => (x.path < y.path ? -1 : 1));
+      }
       return { ...project, ...read, error: null };
     } catch (e) {
       return { ...project, items: last?.items ?? null, found: false, error: reason(e) };

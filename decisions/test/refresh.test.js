@@ -382,6 +382,18 @@ test("a read under an unconfirmed root only adds cards, so none drops out and co
   assert.deepEqual(w.toasts, []);
 });
 
+test("a card added under an unconfirmed root takes its place in path order", async () => {
+  const w = new World();
+  w.pane("m5", "/srv/x"); w.write("m5", "/srv/x/.decisions/b.md", decision("b"));
+  w.rules.push((command) => (command === "git" ? new Error("git timed out") : undefined));
+  await w.refresher.refresh();
+
+  w.write("m5", "/srv/x/.decisions/a.md", decision("a"));
+  await w.refresher.refresh();
+
+  assert.deepEqual(w.last.titles, ["a", "b"]);
+});
+
 test("fixed roots are read on this machine as they are, with no git and no other machine", async () => {
   const w = new World(["/fixed"]);
   w.pane("m5", "/srv"); w.write("m5", "/srv/.decisions/b.md", decision("remote"));

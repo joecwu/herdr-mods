@@ -126,7 +126,8 @@ files, and point `roots` at them to try the panel without a real session.
 
 ## Limits
 
-- Local projects only. Panes on other machines are skipped.
+- Panes on other machines (`hc machine add`) are read through herdr-core. Their folders can't be
+  watched, so their decisions show up on the 15 s refresh instead of at once.
 - The session is told with `hc send`, which agents treat as a notice. The rule file tells them to
   re-read the decision file and act on it; nothing enforces that. The guard only covers the other
   direction, an agent that asks without writing a file.

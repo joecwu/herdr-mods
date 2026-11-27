@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Refresher } from "../mods/decisions/refresh.js";
-import { placeKey, mergeSnapshots, newlyPending } from "../mods/decisions/places.js";
+import { placeKey, placesOf, mergeSnapshots, newlyPending } from "../mods/decisions/places.js";
+import { bySpace } from "../mods/decisions/groups.js";
 
 const decision = (title, status = "pending") => `---\ntitle: ${title}\nstatus: ${status}\nrequester: t1\n---\nBody\n`;
 const NOT_A_REPO = { code: 128, stdout: "", stderr: "fatal: not a git repository (or any of the parent directories): .git\n" };
@@ -380,4 +381,17 @@ test("fixed roots are read on this machine as they are, with no git and no other
 
   assert.deepEqual(w.last.titles, ["fixed"]);
   assert.deepEqual(w.calls.map((c) => [c.command, c.options.on ?? null]), [["find", null], ["readTextFile", null]]);
+});
+
+test("fixed roots are not grouped into the space of a pane open on the same folder", async () => {
+  const w = new World(["/fixed"]);
+  w.pane(null, "/fixed");
+  w.write(null, "/fixed/.decisions/f.md", "---\ntitle: fixed\nstatus: pending\nrequester: t9\n---\n");
+  await w.refresher.refresh();
+
+  const spaces = [{ id: "s1", name: "Space", tabs: [{ id: "tab", name: "tab", named: false }] }];
+  const places = placesOf(spaces, w.panes, (on, folder) => w.refresher.rootOf(on, folder));
+  const groups = bySpace(mergeSnapshots(w.refresher.machines).projects, places);
+
+  assert.deepEqual(groups.map((g) => [g.id, g.items.map((i) => i.title)]), [["project:/fixed", ["fixed"]]]);
 });

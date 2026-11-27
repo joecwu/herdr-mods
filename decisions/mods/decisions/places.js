@@ -42,6 +42,30 @@ export function requesterLabel(requester, panes, spaces) {
 }
 
 /**
+ * Where spaces, terminals and projects are right now, for bySpace: `order` lists the spaces as
+ * `{ id, name }`, `terminals` maps a terminal address to its space, `roots` a project's key to the
+ * first space with a pane in it. `rootOf(on, folder)` is the project root of a pane's folder on
+ * machine `on`, or null when the pane maps to no project.
+ */
+export function placesOf(spaces, panes, rootOf) {
+  const tabs = new Map(), terminals = new Map(), roots = new Map();
+  const order = spaces.map((space) => {
+    const place = { id: space.id, name: space.name };
+    for (const tab of space.tabs) tabs.set(tab.id, place);
+    return place;
+  });
+  for (const pane of panes) {
+    const place = tabs.get(pane.tab);
+    if (!place) continue;
+    if (pane.terminal) terminals.set(pane.terminal, place);
+    const on = machineOf(pane.pane);
+    const root = rootOf(on, pane.cwd);
+    if (root && !roots.has(placeKey(on, root))) roots.set(placeKey(on, root), place);
+  }
+  return { order, terminals, roots };
+}
+
+/**
  * Every machine's last read (a Refresher's `machines`) as one list of projects, in the machines'
  * order, and the warnings to show: `unreachable` for a machine that can't be reached (`stale` when
  * its last read still shows a card), `projectFailed` for a project whose read failed on a machine that

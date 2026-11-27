@@ -62,6 +62,9 @@ export class Refresher {
     this.starting = null;
   }
 
+  /** The project a pane's folder belongs to, for grouping. With fixed roots no pane maps to one. */
+  rootOf(on, folder) { return this.fixedRoots ? null : this.roots.get(on, folder) ?? folder; }
+
   /** True once every machine of the first refresh has finished a read, whether or not it worked. */
   get loaded() { return this.starting?.size === 0; }
 

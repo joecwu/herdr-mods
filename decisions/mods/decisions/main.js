@@ -14,7 +14,7 @@ import { v_flex, h_flex, InputState, Input, TextView, Scrollbar } from "gpui-bas
 import { parse, withMeta, decidedMeta, segments, PENDING, APPROVED, REJECTED } from "./decision-file.js";
 import { strings } from "./strings.js";
 import { bySpace } from "./groups.js";
-import { machineOf, placeKey, requesterLabel, mergeSnapshots, newlyPending } from "./places.js";
+import { requesterLabel, placesOf, mergeSnapshots, newlyPending } from "./places.js";
 import { Refresher, DIR } from "./refresh.js";
 import { tellRequester } from "./tell.js";
 import { panes, spaces, machines, focused, props, layout, exec, hc, readTextFile, writeTextFile, watchFolder, theme, settings, notify, setBadge, checking, run } from "herdr";
@@ -171,25 +171,6 @@ export default class Decisions extends View {
     run("layout.hide", { id: MAIN_BLOCK });
   }
 
-  // Where spaces, terminals and projects are right now, for bySpace.
-  places() {
-    const tabs = new Map(), terminals = new Map(), roots = new Map();
-    const order = spaces().map((space) => {
-      const place = { id: space.id, name: space.name };
-      for (const tab of space.tabs) tabs.set(tab.id, place);
-      return place;
-    });
-    for (const pane of panes()) {
-      const place = tabs.get(pane.tab);
-      if (!place) continue;
-      if (pane.terminal) terminals.set(pane.terminal, place);
-      const on = machineOf(pane.pane);
-      const root = this.refresher.roots.get(on, pane.cwd) ?? pane.cwd;
-      if (root && !roots.has(placeKey(on, root))) roots.set(placeKey(on, root), place);
-    }
-    return { order, terminals, roots };
-  }
-
   tabChip(id, label, count, selected, here, t, onClick) {
     return h_flex().id(id).flex_none().max_w(160).h(22).px(7).gap(5).items_center().rounded(6).border_1().cursor_pointer().text_size(11)
       .border_color(selected ? t.accent : t.border).bg(selected ? t.raised : t.background).text_color(selected || here ? t.foreground : t.muted)
@@ -250,7 +231,7 @@ export default class Decisions extends View {
   render() {
     const zoomed = this.zoomed(), text = this.text;
     const t = theme(), here = focused()?.space;
-    const groups = bySpace(this.projects, this.places());
+    const groups = bySpace(this.projects, placesOf(spaces(), panes(), (on, folder) => this.refresher.rootOf(on, folder)));
     const pending = groups.reduce((n, group) => n + group.pending, 0);
     const shown = groups.filter((group) => group.id === this.tab);
     const listed = shown.length ? shown : groups;

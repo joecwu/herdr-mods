@@ -15,18 +15,30 @@ export const addressOf = (on, requester) => (on && requester && !requester.inclu
  * Who asked, as the person knows it. Each terminal pane in the requester's tab goes by its pane
  * name, else the tab's name when someone named the tab, else its address. When another terminal
  * pane in the tab goes by the same name, " · <terminal id>" is added; if that is still shared, the
- * address is used. A requester with no pane here is its address.
+ * address is used. A label that still meets another pane's, as when a pane is named after another's
+ * address, gets " (<address>)" until none is shared. A requester with no pane here is its address.
  */
 export function requesterLabel(requester, panes, spaces) {
   const terminals = panes.filter((p) => p.terminal);
   const own = terminals.find((p) => p.terminal === requester);
   if (!own) return requester;
   const tab = spaces.flatMap((space) => space.tabs).find((t) => t.id === own.tab);
+  const inTab = terminals.filter((p) => p.tab === own.tab);
   const name = (p) => p.name || (tab?.named && tab.name) || p.terminal;
   const withId = (p) => `${name(p)} · ${p.terminal.slice(p.terminal.lastIndexOf("/") + 1)}`;
-  const peers = terminals.filter((p) => p.tab === own.tab && p !== own);
-  if (!peers.some((p) => name(p) === name(own))) return name(own);
-  return peers.some((p) => withId(p) === withId(own) || name(p) === withId(own)) ? requester : withId(own);
+  const labelOf = (p) => {
+    const peers = inTab.filter((q) => q !== p);
+    if (!peers.some((q) => name(q) === name(p))) return name(p);
+    return peers.some((q) => withId(q) === withId(p) || name(q) === withId(p)) ? p.terminal : withId(p);
+  };
+  const labels = new Map(inTab.map((p) => [p, labelOf(p)]));
+  for (;;) {
+    const count = new Map();
+    for (const label of labels.values()) count.set(label, (count.get(label) ?? 0) + 1);
+    const shared = [...labels].filter(([, label]) => count.get(label) > 1);
+    if (!shared.length) return labels.get(own);
+    for (const [p, label] of shared) labels.set(p, `${label} (${p.terminal})`);
+  }
 }
 
 /**

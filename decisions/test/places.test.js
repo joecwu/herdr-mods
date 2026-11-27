@@ -49,6 +49,16 @@ test("requesterLabel falls back to the address when the terminal id does not tel
   assert.equal(requesterLabel("m6/t3", panes, spaces), "m6/t3");
 });
 
+test("requesterLabel gives every terminal pane in a tab its own label, however the panes are named", () => {
+  const spaces = spaceWith(["a", "Review", true]);
+  const panes = [terminal("t1", "a"), terminal("t2", "a"), terminal("t3", "a", "Review · t1"), terminal("t4", "a", "t1")];
+  const labels = panes.map((p) => requesterLabel(p.terminal, panes, spaces));
+
+  assert.equal(new Set(labels).size, panes.length, labels.join(" | "));
+  assert.equal(labels[1], "Review · t2");
+  assert.equal(labels[2], "Review · t1");
+});
+
 test("requesterLabel counts only terminal panes, and only those in the same tab", () => {
   const spaces = spaceWith(["a", "LightPlay", true], ["b", "LightPlay", true]);
   const panes = [terminal("t1", "a"), { pane: "p-mod", terminal: null, tab: "a", name: "LightPlay" }, terminal("t2", "b")];

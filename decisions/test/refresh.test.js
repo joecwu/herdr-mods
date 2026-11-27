@@ -74,7 +74,7 @@ class World {
     const { fresh, announced } = newlyPending(this.announced, projects, new Set(change.first ? [change.on] : []));
     this.announced = announced;
     this.toasts.push(...fresh.map((item) => item.title));
-    const view = { ...change, titles: projects.flatMap((p) => p.items.map((item) => item.title)), warnings, badge: announced.size };
+    const view = { ...change, loaded: this.refresher.loaded, titles: projects.flatMap((p) => p.items.map((item) => item.title)), warnings, badge: announced.size };
     this.publishes.push(view);
     this.waiters = this.waiters.filter((waiter) => !(waiter.test(view) && (waiter.resolve(view), true)));
   }
@@ -120,6 +120,23 @@ test("a machine that is slow to answer holds up no update on this machine", asyn
   assert.deepEqual((await remote).titles, ["local v2", "remote v1"]);
   await w.refresher.refresh();
   assert.deepEqual(w.last.titles, ["local v2", "remote v1"]);
+});
+
+test("the first load lasts until every machine it started with has answered once, even with a failure", async () => {
+  const w = new World();
+  w.pane(null, "/repo"); w.repo(null, "/repo");
+  w.pane("m5", "/srv"); w.repo("m5", "/srv"); w.write("m5", "/srv/.decisions/b.md", decision("remote"));
+  const release = w.hold("m5");
+  w.offline.add("m5");
+
+  const local = w.next((view) => view.on === null);
+  const done = w.refresher.refresh();
+  assert.deepEqual(await local, { on: null, first: true, loaded: false, titles: [], warnings: [], badge: 0 });
+
+  release();
+  await done;
+  assert.equal(w.last.on, "m5");
+  assert.equal(w.last.loaded, true);
 });
 
 test("reads on another machine time out after 5 s, and reads here keep exec's default", async () => {

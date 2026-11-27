@@ -59,11 +59,17 @@ export class Refresher {
     this.io = io; this.fixedRoots = fixedRoots;
     this.roots = new Roots(io.exec);
     this.machines = new Map();
+    this.starting = null;
   }
+
+  /** True once every machine of the first refresh has finished a read, whether or not it worked. */
+  get loaded() { return this.starting?.size === 0; }
 
   /** Reads every machine; one still reading reads again when it is done. Resolves when the reads it started land. */
   refresh() {
-    return Promise.all(this.targets().map((on) => {
+    const targets = this.targets();
+    this.starting ??= new Set(targets);
+    return Promise.all(targets.map((on) => {
       const entry = this.entry(on);
       if (entry.reading) { entry.again = true; return null; }
       return this.run(on, entry);
@@ -100,7 +106,7 @@ export class Refresher {
       let first = false;
       try { first = await this.read(on, entry); entry.error = null; }
       catch (e) { entry.error = reason(e); }
-      finally { entry.reading = false; }
+      finally { entry.reading = false; this.starting.delete(on); }
       this.io.onPublish({ on, first });
     } while (entry.again);
   }

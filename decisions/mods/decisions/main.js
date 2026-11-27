@@ -61,7 +61,7 @@ export default class Decisions extends View {
     if (!this.fixedRoots) this.announce(projects, new Set(first ? [on] : []));
     this.projects = projects;
     this.warnings = warnings.map((w) => this.warning(w));
-    this.known = true;
+    this.known = this.refresher.loaded;
     cx.notify();
   }
 

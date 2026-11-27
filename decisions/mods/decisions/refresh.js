@@ -41,7 +41,7 @@ export class Roots {
  * `{ projects, state, baselined, reading, again, error }`. `projects` maps a project's key to
  * `{ root, dir, on, name, items, found, error }`, where `items` is the last confirmed read (null
  * before one) and `error` why this round's read failed. `state` is "ok" or "unreachable" after a
- * read, `baselined` true once a read succeeded.
+ * read, `baselined` true once a project under a confirmed root read without error.
  *
  * Each machine reads on its own and publishes when it is done, so a slow one holds up no other.
  * A machine counts as unreachable only on evidence: Herdr lists it unavailable, or this round's
@@ -51,7 +51,8 @@ export class Roots {
 export class Refresher {
   /**
    * `io`: Herdr's `exec`, `readTextFile`, `panes` and `machines`, and `onPublish({ on, first })`,
-   * called each time machine `on` lands a read (`first`: its first successful one).
+   * called each time machine `on` lands a read (`first`: read before the machine had a baseline,
+   * which it gets from its first read of a project under a confirmed root).
    * `fixedRoots`: folders on this machine to read instead of the panes' projects.
    */
   constructor(io, fixedRoots = null) {
@@ -104,7 +105,7 @@ export class Refresher {
     } while (entry.again);
   }
 
-  /** Reads one machine into its entry. Resolves true when this is its first successful read. */
+  /** Reads one machine into its entry. Resolves true while the machine has no baseline yet. */
   async read(on, entry) {
     const folders = this.folders(on);
     if (on) {
@@ -114,15 +115,19 @@ export class Refresher {
     entry.state = "ok";
     // A machine whose panes are gone while its layout loads keeps what it showed.
     if (on && !folders.length) return false;
+    const first = !entry.baselined;
     const projects = new Map();
+    let confirmedRead = !folders.length;
     for (const folder of folders) {
       const { root, confirmed } = this.fixedRoots ? { root: folder, confirmed: true } : await this.roots.of(folder, on);
       const key = placeKey(on, root);
-      if (!projects.has(key)) projects.set(key, await this.project(root, on, confirmed, entry.projects.get(key)));
+      if (projects.has(key)) continue;
+      const project = await this.project(root, on, confirmed, entry.projects.get(key));
+      projects.set(key, project);
+      if (confirmed && !project.error) confirmedRead = true;
     }
     entry.projects = projects;
-    const first = !entry.baselined;
-    entry.baselined = true;
+    if (confirmedRead) entry.baselined = true;
     return first;
   }
 

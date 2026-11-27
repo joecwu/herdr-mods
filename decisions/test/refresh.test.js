@@ -235,6 +235,24 @@ test("each machine's first read is silent, offline keeps the badge, and a reconn
   assert.equal(w.last.badge, 3);
 });
 
+test("a machine whose every project failed to read has no baseline, and claims no last read", async () => {
+  const w = new World();
+  w.pane("m5", "/srv"); w.repo("m5", "/srv");
+  let failing = true;
+  w.rules.push((command) => (command === "find" && failing ? new Error("no such folder") : undefined));
+  await w.refresher.refresh();
+
+  w.offline.add("m5");
+  await w.refresher.refresh();
+  assert.deepEqual(w.last.warnings, [{ kind: "unreachable", machine: "m5", stale: false }]);
+
+  w.offline.delete("m5"); failing = false;
+  w.write("m5", "/srv/.decisions/a.md", decision("waiting"));
+  await w.refresher.refresh();
+  assert.deepEqual(w.last.titles, ["waiting"]);
+  assert.deepEqual(w.toasts, []);
+});
+
 test("a machine first reached later joins silently, and its next decision notifies", async () => {
   const w = twoMachines();
   w.offline.add("m5");

@@ -172,6 +172,16 @@ test("a project keeps its place by its other panes when its first pane closes", 
   for (const view of views) assert.deepEqual(view.titles, ["one", "two"], `after ${view.on ?? "this machine"} published`);
 });
 
+test("a pane in a nested repository places only its own project, not the one around it", async () => {
+  const w = new World();
+  w.pane("m5", "/outer/inner"); w.repo("m5", "/outer/inner"); w.write("m5", "/outer/inner/.decisions/a.md", decision("inner"));
+  w.pane("m5", "/other"); w.repo("m5", "/other"); w.write("m5", "/other/.decisions/a.md", decision("other"));
+  w.pane("m5", "/outer"); w.repo("m5", "/outer"); w.write("m5", "/outer/.decisions/a.md", decision("outer"));
+  await w.refresher.refresh();
+
+  assert.deepEqual(w.last.titles, ["inner", "other", "outer"]);
+});
+
 test("projects with no pane open follow, in the order they were last shown", async () => {
   const w = new World();
   w.pane("m6", "/c"); w.repo("m6", "/c"); w.write("m6", "/c/.decisions/c.md", decision("c"));

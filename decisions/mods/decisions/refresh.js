@@ -68,18 +68,21 @@ export class Refresher {
 
   /**
    * Every machine's last read as mergeSnapshots gives it, each project placed by its first pane
-   * open now: one in its root or under it. Projects with no pane open follow, in the order the last
-   * snapshot gave them.
+   * open now: one whose folder has that project's root (the folder itself while its root is not
+   * confirmed). Projects with no pane open follow, in the order the last snapshot gave them.
    */
   snapshot() {
     const merged = mergeSnapshots(this.machines);
     if (this.fixedRoots) return merged;
-    const folders = this.io.panes().filter((p) => p.cwd).map((p) => placeKey(machineOf(p.pane), p.cwd));
+    const roots = this.io.panes().filter((p) => p.cwd).map((p) => {
+      const on = machineOf(p.pane);
+      return placeKey(on, this.roots.get(on, p.cwd) ?? p.cwd);
+    });
     const rank = (project) => {
-      const pane = folders.findIndex((f) => f === project.root || f.startsWith(`${project.root}/`));
+      const pane = roots.indexOf(project.root);
       if (pane >= 0) return pane;
       const before = this.order.indexOf(project.root);
-      return folders.length + (before < 0 ? this.order.length : before);
+      return roots.length + (before < 0 ? this.order.length : before);
     };
     merged.projects.sort((a, b) => rank(a) - rank(b));
     this.order = merged.projects.map((p) => p.root);

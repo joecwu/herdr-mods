@@ -16,8 +16,10 @@ session.
 - A scrolling list grouped by space. A decision belongs to the space its `requester` terminal is
   in; when that terminal is gone, to a space with a pane in the project; otherwise the project is
   its own group. The focused space's name is accented. Pending cards come first in each group,
-  projects keep the order of their first open panes across machines (a pane in the project's root
-  or under it), those with no pane open follow in the order they were shown, and a card's meta line
+  projects keep the order of their first open panes across machines (a pane whose folder has that
+  project's git root, or is that folder while its root is not confirmed; a pane in a nested
+  repository places only its own project), those with no pane open follow in the order they were
+  shown, and a card's meta line
   names its project. Until every machine of the first refresh has finished one read, worked or not,
   an empty list says "Loading…".
 - With more than one group, a wrapping row of small tabs under the header: "All" and one per group,

@@ -15,6 +15,7 @@ import { parse, withMeta, decidedMeta, segments, PENDING, APPROVED, REJECTED } f
 import { strings } from "./strings.js";
 import { bySpace } from "./groups.js";
 import { machineOf, placeKey, addressOf } from "./places.js";
+import { Roots } from "./refresh.js";
 import { panes, spaces, focused, props, layout, exec, hc, readTextFile, writeTextFile, watchFolder, theme, settings, notify, setBadge, checking, run } from "herdr";
 
 const DIR = ".decisions";
@@ -34,24 +35,12 @@ const isPending = (item) => item.status === PENDING;
 
 export default class Decisions extends View {
   init(_props, cx) {
-    this.projects = []; this.roots = new Map(); this.known = false; this.announced = null; this.watching = new Set();
+    this.projects = []; this.roots = new Roots(exec); this.known = false; this.announced = null; this.watching = new Set();
     this.text = strings(props()?.lang); this.fixedRoots = Array.isArray(props()?.roots) ? props().roots : null;
     this.toggled = new Set(); this.notes = new Map(); this.rejecting = new Set(); this.busy = new Set(); this.message = null; this.badge = null; this.tab = null;
     if (checking()) return;
     this.refresh(cx);
     cx.timer.every(REFRESH_MS, (cx) => this.refresh(cx));
-  }
-
-  async rootOf(folder, on = null) {
-    const key = placeKey(on, folder);
-    if (this.roots.has(key)) return this.roots.get(key);
-    let root = folder;
-    try {
-      const r = await exec("git", ["rev-parse", "--show-toplevel"], { cwd: folder, on });
-      if (r.code === 0 && r.stdout.trim()) root = r.stdout.trim();
-    } catch { root = folder; }
-    this.roots.set(key, root);
-    return root;
   }
 
   // `root` is the folder on machine `on`; the project's `root` field is that place's key.
@@ -86,8 +75,8 @@ export default class Decisions extends View {
         if (this.fixedRoots) this.fixedRoots.forEach((root) => roots.set(root, { root, on: null }));
         else {
           for (const { folder, on } of paneFolders()) {
-            const root = await this.rootOf(folder, on).catch(() => null);
-            if (root) roots.set(placeKey(on, root), { root, on });
+            const { root } = await this.roots.of(folder, on);
+            roots.set(placeKey(on, root), { root, on });
           }
         }
         const projects = [];
@@ -236,7 +225,7 @@ export default class Decisions extends View {
       if (!place) continue;
       if (pane.terminal) terminals.set(pane.terminal, place);
       const on = machineOf(pane.pane);
-      const root = this.roots.get(placeKey(on, pane.cwd));
+      const root = this.roots.get(on, pane.cwd) ?? pane.cwd;
       if (root && !roots.has(placeKey(on, root))) roots.set(placeKey(on, root), place);
     }
     return { order, terminals, roots };

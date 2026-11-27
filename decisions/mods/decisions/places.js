@@ -15,8 +15,9 @@ export const addressOf = (on, requester) => (on && requester && !requester.inclu
  * Who asked, as the person knows it. Each terminal pane in the requester's tab goes by its pane
  * name, else the tab's name when someone named the tab, else its address. When another terminal
  * pane in the tab goes by the same name, " · <terminal id>" is added; if that is still shared, the
- * address is used. A label that still meets another pane's, as when a pane is named after another's
- * address, gets " (<address>)" until none is shared. A requester with no pane here is its address.
+ * address is used. A label that still meets another pane's, as when a pane is named after
+ * another's address, gets " (<address>)" until none is shared. A requester with no pane here is
+ * its address.
  */
 export function requesterLabel(requester, panes, spaces) {
   const terminals = panes.filter((p) => p.terminal);
@@ -68,8 +69,8 @@ export function placesOf(spaces, panes, rootOf) {
 /**
  * Every machine's last read (a Refresher's `machines`) as one list of projects, in the machines'
  * order, and the warnings to show: `unreachable` for a machine that can't be reached (`stale` when
- * its last read still shows a card), `projectFailed` for a project whose read failed on a machine that
- * answered, and `failed` for a machine whose read failed outright.
+ * its last read still shows a card), `projectFailed` for a project whose read failed on a machine
+ * that answered, and `failed` for a machine whose read failed outright.
  */
 export function mergeSnapshots(machines) {
   const projects = [], warnings = [];

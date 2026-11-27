@@ -34,8 +34,9 @@ session.
   button.
 - Folded to a 44 px rail: only the count in a circle and "Decide".
 - A message strip at the bottom, one line each: "Can't reach <machine>" for a machine that can't be
-  reached (", showing the last read" when its last cards are still shown), "<project>: read failed
-  (<why>)" for a project whose read failed, then the last write or notification result.
+  reached (", showing the last read" when one of its projects has a last read, even one with no
+  cards), "<project>: read failed (<why>)" for a project whose read failed, then the last write or
+  notification result.
 
 ## How it behaves
 

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { Refresher } from "../mods/decisions/refresh.js";
 import { placeKey, placesOf, newlyPending } from "../mods/decisions/places.js";
 import { bySpace } from "../mods/decisions/groups.js";
+import { strings } from "../mods/decisions/strings.js";
 
 const decision = (title, status = "pending") => `---\ntitle: ${title}\nstatus: ${status}\nrequester: t1\n---\nBody\n`;
 const NOT_A_REPO = { code: 128, stdout: "", stderr: "fatal: not a git repository (or any of the parent directories): .git\n" };
@@ -299,6 +300,18 @@ test("each machine's first read is silent, offline keeps the badge, and a reconn
   await w.refresher.refresh();
   assert.deepEqual(w.toasts, ["new on m5"]);
   assert.equal(w.last.badge, 3);
+});
+
+test("a machine read empty and then unreachable says it shows that last read", async () => {
+  const w = new World();
+  w.pane("m5", "/srv"); w.repo("m5", "/srv");
+  await w.refresher.refresh();
+  assert.deepEqual(w.last.warnings, []);
+
+  w.layouts.set("m5", "unavailable");
+  await w.refresher.refresh();
+
+  assert.deepEqual(w.last.warnings.map((x) => strings("en").unreachable(x.machine, x.stale)), ["Can't reach m5, showing the last read"]);
 });
 
 test("a machine whose every project failed to read has no baseline, and claims no last read", async () => {

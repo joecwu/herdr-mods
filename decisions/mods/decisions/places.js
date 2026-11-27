@@ -69,15 +69,15 @@ export function placesOf(spaces, panes, rootOf) {
 /**
  * Every machine's last read (a Refresher's `machines`) as one list of projects, in the machines'
  * order, and the warnings to show: `unreachable` for a machine that can't be reached (`stale` when
- * its last read still shows a card), `projectFailed` for a project whose read failed on a machine
- * that answered, and `failed` for a machine whose read failed outright.
+ * one of its projects has a last read, even an empty one), `projectFailed` for a project whose read
+ * failed on a machine that answered, and `failed` for a machine whose read failed outright.
  */
 export function mergeSnapshots(machines) {
   const projects = [], warnings = [];
   for (const [on, entry] of machines) {
     const unreachable = entry.state === "unreachable";
     if (entry.error) warnings.push({ kind: "failed", machine: on, why: entry.error });
-    if (unreachable) warnings.push({ kind: "unreachable", machine: on, stale: [...entry.projects.values()].some((p) => p.items?.length) });
+    if (unreachable) warnings.push({ kind: "unreachable", machine: on, stale: [...entry.projects.values()].some((p) => p.items !== null) });
     for (const project of entry.projects.values()) {
       if (project.error && !unreachable) warnings.push({ kind: "projectFailed", project: project.name, why: project.error });
       if (project.items) projects.push(project);

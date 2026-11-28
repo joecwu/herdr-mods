@@ -33,7 +33,7 @@ export default class Decisions extends View {
     this.projects = []; this.warnings = []; this.known = false; this.announced = new Set(); this.watching = new Set();
     this.text = strings(props()?.lang); this.fixedRoots = Array.isArray(props()?.roots) ? props().roots : null;
     this.toggled = new Set(); this.notes = new Map(); this.rejecting = new Set(); this.busy = new Set(); this.message = null; this.badge = null; this.tab = null;
-    this.refresher = new Refresher({ exec, readTextFile, panes, machines, onPublish: (change) => this.publish(change, cx) }, this.fixedRoots);
+    this.refresher = new Refresher({ exec, readTextFile, panes, machines }, this.fixedRoots);
     if (checking()) return;
     this.refresh(cx);
     cx.timer.every(REFRESH_MS, (cx) => this.refresh(cx));
@@ -50,7 +50,7 @@ export default class Decisions extends View {
   }
 
   refresh(cx) {
-    cx.spawn(() => this.refresher.refresh());
+    cx.spawn((cx) => this.refresher.refresh((change) => this.publish(change, cx)));
   }
 
   // One machine's read landed: show every machine's last read, and announce what is new.

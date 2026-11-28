@@ -9,7 +9,7 @@ const decision = (title, status = "pending") => `---\ntitle: ${title}\nstatus: $
 const NOT_A_REPO = { code: 128, stdout: "", stderr: "fatal: not a git repository (or any of the parent directories): .git\n" };
 
 // Panes, files and git repositories on this machine (null) and others, behind Herdr's I/O calls.
-// `onPublish` does what the panel does with a read: merge, announce, count the badge.
+// Publishing does what the panel does with a read: merge, announce, count the badge.
 class World {
   constructor(fixedRoots = null) {
     this.files = new Map(); this.repos = new Map(); this.panes = []; this.layouts = new Map();
@@ -20,9 +20,10 @@ class World {
       readTextFile: (...call) => this.readTextFile(...call),
       panes: () => this.panes,
       machines: () => [{ name: null, layout: "ready" }, ...[...this.layouts].map(([name, layout]) => ({ name, layout }))],
-      onPublish: (change) => this.published(change),
     }, fixedRoots);
   }
+
+  refresh() { return this.refresher.refresh((change) => this.published(change)); }
 
   pane(on, cwd) {
     const n = this.panes.length + 1;
@@ -103,25 +104,48 @@ const twoMachines = () => {
 
 test("a machine that is slow to answer holds up no update on this machine", async () => {
   const w = twoMachines();
-  await w.refresher.refresh();
+  await w.refresh();
   const release = w.hold("m5");
 
   w.write(null, "/repo/.decisions/a.md", decision("local v1"));
   const v1 = w.next((view) => view.on === null);
-  w.refresher.refresh();
+  w.refresh();
   assert.deepEqual((await v1).titles, ["local v1", "remote"]);
 
   w.write(null, "/repo/.decisions/a.md", decision("local v2"));
   const v2 = w.next((view) => view.on === null);
-  w.refresher.refresh();
+  w.refresh();
   assert.deepEqual((await v2).titles, ["local v2", "remote"]);
 
   w.write("m5", "/srv/.decisions/b.md", decision("remote v1"));
   const remote = w.next((view) => view.on === "m5");
   release();
   assert.deepEqual((await remote).titles, ["local v2", "remote v1"]);
-  await w.refresher.refresh();
+  await w.refresh();
   assert.deepEqual(w.last.titles, ["local v2", "remote v1"]);
+});
+
+test("overlapping refreshes publish through the callback that started each machine's reads", async () => {
+  const w = twoMachines();
+  const published = [];
+  const refresh = (owner) => w.refresher.refresh((change) => {
+    published.push([owner, change.on]);
+    w.published(change);
+  });
+  const release = w.hold("m5");
+  const local = w.next((view) => view.on === null);
+  const first = refresh("first");
+  try {
+    await local;
+    await refresh("second");
+  } finally {
+    release();
+    await first;
+  }
+
+  assert.deepEqual(published, [
+    ["first", null], ["second", null], ["first", "m5"], ["first", "m5"],
+  ]);
 });
 
 test("the first load lasts until every machine it started with has answered once, even with a failure", async () => {
@@ -132,7 +156,7 @@ test("the first load lasts until every machine it started with has answered once
   w.offline.add("m5");
 
   const local = w.next((view) => view.on === null);
-  const done = w.refresher.refresh();
+  const done = w.refresh();
   assert.deepEqual(await local, { on: null, first: true, loaded: false, titles: [], warnings: [], badge: 0 });
 
   release();
@@ -146,7 +170,7 @@ test("projects keep the order of their first panes, across machines", async () =
   w.pane("m5", "/srv"); w.repo("m5", "/srv"); w.write("m5", "/srv/.decisions/b.md", decision("remote"));
   w.pane(null, "/repo"); w.repo(null, "/repo"); w.write(null, "/repo/.decisions/a.md", decision("local"));
   w.pane("m5", "/web"); w.repo("m5", "/web"); w.write("m5", "/web/.decisions/c.md", decision("remote web"));
-  await w.refresher.refresh();
+  await w.refresh();
 
   assert.deepEqual(w.last.titles, ["remote", "local", "remote web"]);
 });
@@ -156,13 +180,13 @@ test("a project keeps its place by its other panes when its first pane closes", 
   w.pane("m5", "/one/sub1"); w.pane("m5", "/one/sub2"); w.repo("m5", "/one", "/one/sub1", "/one/sub2");
   w.write("m5", "/one/.decisions/a.md", decision("one"));
   w.pane("m5", "/two"); w.repo("m5", "/two"); w.write("m5", "/two/.decisions/a.md", decision("two"));
-  await w.refresher.refresh();
+  await w.refresh();
   const before = w.publishes.length;
 
   w.panes = w.panes.filter((p) => p.cwd !== "/one/sub1");
   const release = w.hold("m5");
   const local = w.next((view) => view.on === null);
-  const done = w.refresher.refresh();
+  const done = w.refresh();
   await local;
   release();
   await done;
@@ -177,7 +201,7 @@ test("a pane in a nested repository places only its own project, not the one aro
   w.pane("m5", "/outer/inner"); w.repo("m5", "/outer/inner"); w.write("m5", "/outer/inner/.decisions/a.md", decision("inner"));
   w.pane("m5", "/other"); w.repo("m5", "/other"); w.write("m5", "/other/.decisions/a.md", decision("other"));
   w.pane("m5", "/outer"); w.repo("m5", "/outer"); w.write("m5", "/outer/.decisions/a.md", decision("outer"));
-  await w.refresher.refresh();
+  await w.refresh();
 
   assert.deepEqual(w.last.titles, ["inner", "other", "outer"]);
 });
@@ -187,21 +211,21 @@ test("projects with no pane open follow, in the order they were last shown", asy
   w.pane("m6", "/c"); w.repo("m6", "/c"); w.write("m6", "/c/.decisions/c.md", decision("c"));
   w.pane("m5", "/a"); w.repo("m5", "/a"); w.write("m5", "/a/.decisions/a.md", decision("a"));
   w.pane(null, "/b"); w.repo(null, "/b"); w.write(null, "/b/.decisions/b.md", decision("b"));
-  await w.refresher.refresh();
+  await w.refresh();
   w.panes = [w.panes[1], w.panes[2], w.panes[0]];
-  await w.refresher.refresh();
+  await w.refresh();
   assert.deepEqual(w.last.titles, ["a", "b", "c"]);
 
   w.closePanes("m5"); w.closePanes("m6");
   w.layouts.set("m5", "unavailable"); w.layouts.set("m6", "unavailable");
-  await w.refresher.refresh();
+  await w.refresh();
 
   assert.deepEqual(w.last.titles, ["b", "a", "c"]);
 });
 
 test("reads on another machine time out after 5 s, and reads here keep exec's default", async () => {
   const w = twoMachines();
-  await w.refresher.refresh();
+  await w.refresh();
 
   for (const command of ["true", "git", "find"]) {
     assert.ok(w.callsOn("m5", command).length, command);
@@ -216,11 +240,11 @@ test("a project that fails to read keeps its last read, and the machine's other 
   const w = new World();
   w.pane("m5", "/srv/a"); w.repo("m5", "/srv/a"); w.write("m5", "/srv/a/.decisions/a.md", decision("a1"));
   w.pane("m5", "/srv/b"); w.repo("m5", "/srv/b"); w.write("m5", "/srv/b/.decisions/b.md", decision("b1"));
-  await w.refresher.refresh();
+  await w.refresh();
 
   w.rules.push((command, args) => (command === "find" && args[0] === "/srv/a/.decisions" ? new Error("no such folder") : undefined));
   w.write("m5", "/srv/b/.decisions/c.md", decision("b2"));
-  await w.refresher.refresh();
+  await w.refresh();
 
   assert.deepEqual(w.last.titles, ["a1", "b1", "b2"]);
   assert.deepEqual(w.last.warnings, [{ kind: "projectFailed", project: "a @m5", why: "no such folder" }]);
@@ -230,11 +254,11 @@ test("a machine whose probe is refused keeps every project's last read and says 
   const w = new World();
   w.pane("m5", "/srv/a"); w.repo("m5", "/srv/a"); w.write("m5", "/srv/a/.decisions/a.md", decision("a1"));
   w.pane("m5", "/srv/b"); w.repo("m5", "/srv/b"); w.write("m5", "/srv/b/.decisions/b.md", decision("b1"));
-  await w.refresher.refresh();
+  await w.refresh();
   const before = w.calls.length;
 
   w.offline.add("m5");
-  await w.refresher.refresh();
+  await w.refresh();
 
   assert.deepEqual(w.last.titles, ["a1", "b1"]);
   assert.deepEqual(w.last.warnings, [{ kind: "unreachable", machine: "m5", stale: true }]);
@@ -243,10 +267,10 @@ test("a machine whose probe is refused keeps every project's last read and says 
 
 test("a probe that does not exit 0, as when it timed out, counts as unreachable", async () => {
   const w = twoMachines();
-  await w.refresher.refresh();
+  await w.refresh();
 
   w.rules.push((command) => (command === "true" ? { code: 124, stdout: "", stderr: "timed out\n" } : undefined));
-  await w.refresher.refresh();
+  await w.refresh();
 
   assert.deepEqual(w.last.titles, ["local", "remote"]);
   assert.deepEqual(w.last.warnings, [{ kind: "unreachable", machine: "m5", stale: true }]);
@@ -254,11 +278,11 @@ test("a probe that does not exit 0, as when it timed out, counts as unreachable"
 
 test("a machine Herdr lists as unavailable keeps its last read without being asked", async () => {
   const w = twoMachines();
-  await w.refresher.refresh();
+  await w.refresh();
   const before = w.callsOn("m5", "true").length;
 
   w.layouts.set("m5", "unavailable");
-  await w.refresher.refresh();
+  await w.refresh();
 
   assert.deepEqual(w.last.titles, ["local", "remote"]);
   assert.deepEqual(w.last.warnings, [{ kind: "unreachable", machine: "m5", stale: true }]);
@@ -268,7 +292,7 @@ test("a machine Herdr lists as unavailable keeps its last read without being ask
 test("a machine never reached shows only the warning", async () => {
   const w = twoMachines();
   w.offline.add("m5");
-  await w.refresher.refresh();
+  await w.refresh();
 
   assert.deepEqual(w.last.titles, ["local"]);
   assert.deepEqual(w.last.warnings, [{ kind: "unreachable", machine: "m5", stale: false }]);
@@ -278,13 +302,13 @@ test("a machine never reached shows only the warning", async () => {
 test("a confirmed empty read replaces the last one", async () => {
   const w = twoMachines();
   w.pane("m5", "/srv/two"); w.repo("m5", "/srv/two"); w.write("m5", "/srv/two/.decisions/c.md", decision("two"));
-  await w.refresher.refresh();
+  await w.refresh();
   assert.equal(w.last.badge, 3);
 
   w.write("m5", "/srv/.decisions/b.md", null);
   w.write("m5", "/srv/two/.decisions/c.md", null);
   w.write("m5", "/srv/two/.decisions/done/c.md", decision("two", "decided"));
-  await w.refresher.refresh();
+  await w.refresh();
 
   assert.deepEqual(w.last.titles, ["local"]);
   assert.deepEqual(w.last.warnings, []);
@@ -293,21 +317,21 @@ test("a confirmed empty read replaces the last one", async () => {
 
 test("each machine's first read is silent, offline keeps the badge, and a reconnect replays nothing", async () => {
   const w = twoMachines();
-  await w.refresher.refresh();
+  await w.refresh();
   assert.deepEqual(w.toasts, []);
   assert.equal(w.last.badge, 2);
 
   w.offline.add("m5");
-  await w.refresher.refresh();
+  await w.refresh();
   assert.equal(w.last.badge, 2);
 
   w.offline.delete("m5");
-  await w.refresher.refresh();
+  await w.refresh();
   assert.deepEqual(w.toasts, []);
 
   w.write("m5", "/srv/.decisions/c.md", decision("new on m5"));
-  await w.refresher.refresh();
-  await w.refresher.refresh();
+  await w.refresh();
+  await w.refresh();
   assert.deepEqual(w.toasts, ["new on m5"]);
   assert.equal(w.last.badge, 3);
 });
@@ -315,11 +339,11 @@ test("each machine's first read is silent, offline keeps the badge, and a reconn
 test("a machine read empty and then unreachable says it shows that last read", async () => {
   const w = new World();
   w.pane("m5", "/srv"); w.repo("m5", "/srv");
-  await w.refresher.refresh();
+  await w.refresh();
   assert.deepEqual(w.last.warnings, []);
 
   w.layouts.set("m5", "unavailable");
-  await w.refresher.refresh();
+  await w.refresh();
 
   assert.deepEqual(w.last.warnings.map((x) => strings("en").unreachable(x.machine, x.stale)), ["Can't reach m5, showing the last read"]);
 });
@@ -329,15 +353,15 @@ test("a machine whose every project failed to read has no baseline, and claims n
   w.pane("m5", "/srv"); w.repo("m5", "/srv");
   let failing = true;
   w.rules.push((command) => (command === "find" && failing ? new Error("no such folder") : undefined));
-  await w.refresher.refresh();
+  await w.refresh();
 
   w.offline.add("m5");
-  await w.refresher.refresh();
+  await w.refresh();
   assert.deepEqual(w.last.warnings, [{ kind: "unreachable", machine: "m5", stale: false }]);
 
   w.offline.delete("m5"); failing = false;
   w.write("m5", "/srv/.decisions/a.md", decision("waiting"));
-  await w.refresher.refresh();
+  await w.refresh();
   assert.deepEqual(w.last.titles, ["waiting"]);
   assert.deepEqual(w.toasts, []);
 });
@@ -345,29 +369,29 @@ test("a machine whose every project failed to read has no baseline, and claims n
 test("a machine first reached later joins silently, and its next decision notifies", async () => {
   const w = twoMachines();
   w.offline.add("m5");
-  await w.refresher.refresh();
+  await w.refresh();
   w.offline.delete("m5");
-  await w.refresher.refresh();
+  await w.refresh();
   assert.deepEqual(w.toasts, []);
   assert.deepEqual(w.last.titles, ["local", "remote"]);
 
   w.write("m5", "/srv/.decisions/c.md", decision("later"));
-  await w.refresher.refresh();
+  await w.refresh();
   assert.deepEqual(w.toasts, ["later"]);
 });
 
 test("a machine whose panes are gone keeps its read while offline and drops it once ready", async () => {
   const w = twoMachines();
-  await w.refresher.refresh();
+  await w.refresh();
 
   w.closePanes("m5");
   w.layouts.set("m5", "unavailable");
-  await w.refresher.refresh();
+  await w.refresh();
   assert.deepEqual(w.last.titles, ["local", "remote"]);
   assert.deepEqual(w.last.warnings, [{ kind: "unreachable", machine: "m5", stale: true }]);
 
   w.layouts.set("m5", "ready");
-  await w.refresher.refresh();
+  await w.refresh();
   assert.deepEqual(w.last.titles, ["local"]);
   assert.equal(w.last.badge, 1);
   assert.ok(!w.refresher.machines.has("m5"));
@@ -379,11 +403,11 @@ test("a git lookup that could not run is tried again, and cached once it answers
   let refused = 1;
   w.rules.push((command) => (command === "git" && refused-- > 0 ? new Error("no such folder") : undefined));
 
-  await w.refresher.refresh();
+  await w.refresh();
   assert.deepEqual(w.last.titles, []);
-  await w.refresher.refresh();
+  await w.refresh();
   assert.deepEqual(w.last.titles, ["at the root"]);
-  await w.refresher.refresh();
+  await w.refresh();
   assert.equal(w.callsOn("m5", "git").length, 2);
 });
 
@@ -391,8 +415,8 @@ test("a folder git says is not a repository is its own root, and is not asked ag
   const w = new World();
   w.pane("m5", "/notes"); w.write("m5", "/notes/.decisions/n.md", decision("notes"));
 
-  await w.refresher.refresh();
-  await w.refresher.refresh();
+  await w.refresh();
+  await w.refresh();
 
   assert.deepEqual(w.last.titles, ["notes"]);
   assert.equal(w.callsOn("m5", "git").length, 1);
@@ -404,9 +428,9 @@ test("any other git error is not cached, and the next refresh finds the root", a
   let failing = 1;
   w.rules.push((command) => (command === "git" && failing-- > 0 ? { code: 128, stdout: "", stderr: "fatal: detected dubious ownership in repository at '/srv/app'\n" } : undefined));
 
-  await w.refresher.refresh();
+  await w.refresh();
   assert.deepEqual(w.last.titles, []);
-  await w.refresher.refresh();
+  await w.refresh();
 
   assert.deepEqual(w.last.titles, ["at the root"]);
   assert.equal(w.refresher.roots.get("m5", "/srv/app/sub"), "/srv/app");
@@ -418,10 +442,10 @@ test("a read under an unconfirmed root never clears that project's cards", async
   w.pane("m5", "/srv/x"); w.write("m5", "/srv/x/.decisions/x.md", decision("x1"));
   w.rules.push((command) => (command === "git" ? new Error("git timed out") : undefined));
 
-  await w.refresher.refresh();
+  await w.refresh();
   assert.deepEqual(w.last.titles, ["x1"]);
   w.write("m5", "/srv/x/.decisions/x.md", null);
-  await w.refresher.refresh();
+  await w.refresh();
 
   assert.deepEqual(w.last.titles, ["x1"]);
 });
@@ -434,7 +458,7 @@ test("a read under an unconfirmed root only adds cards, so none drops out and co
   const badges = [];
   for (const files of [["a", "b"], ["b"], ["a", "b"]]) {
     for (const name of ["a", "b"]) w.write("m5", `/srv/x/.decisions/${name}.md`, files.includes(name) ? decision(name) : null);
-    await w.refresher.refresh();
+    await w.refresh();
     badges.push(w.last.badge);
   }
 
@@ -447,10 +471,10 @@ test("a card added under an unconfirmed root takes its place in path order", asy
   const w = new World();
   w.pane("m5", "/srv/x"); w.write("m5", "/srv/x/.decisions/b.md", decision("b"));
   w.rules.push((command) => (command === "git" ? new Error("git timed out") : undefined));
-  await w.refresher.refresh();
+  await w.refresh();
 
   w.write("m5", "/srv/x/.decisions/a.md", decision("a"));
-  await w.refresher.refresh();
+  await w.refresh();
 
   assert.deepEqual(w.last.titles, ["a", "b"]);
 });
@@ -460,7 +484,7 @@ test("fixed roots are read on this machine as they are, with no git and no other
   w.pane("m5", "/srv"); w.write("m5", "/srv/.decisions/b.md", decision("remote"));
   w.write(null, "/fixed/.decisions/f.md", decision("fixed"));
 
-  await w.refresher.refresh();
+  await w.refresh();
 
   assert.deepEqual(w.last.titles, ["fixed"]);
   assert.deepEqual(w.calls.map((c) => [c.command, c.options.on ?? null]), [["find", null], ["readTextFile", null]]);
@@ -470,7 +494,7 @@ test("fixed roots are not grouped into the space of a pane open on the same fold
   const w = new World(["/fixed"]);
   w.pane(null, "/fixed");
   w.write(null, "/fixed/.decisions/f.md", "---\ntitle: fixed\nstatus: pending\nrequester: t9\n---\n");
-  await w.refresher.refresh();
+  await w.refresh();
 
   const spaces = [{ id: "s1", name: "Space", tabs: [{ id: "tab", name: "tab", named: false }] }];
   const places = placesOf(spaces, w.panes, (on, folder) => w.refresher.rootOf(on, folder));

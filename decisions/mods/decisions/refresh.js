@@ -50,9 +50,7 @@ export class Roots {
  */
 export class Refresher {
   /**
-   * `io`: Herdr's `exec`, `readTextFile`, `panes` and `machines`, and `onPublish({ on, first })`,
-   * called each time machine `on` lands a read (`first`: read before the machine had a baseline,
-   * which it gets from its first read of a project under a confirmed root).
+   * `io`: Herdr's `exec`, `readTextFile`, `panes` and `machines`.
    * `fixedRoots`: folders on this machine to read instead of the panes' projects.
    */
   constructor(io, fixedRoots = null) {
@@ -92,14 +90,18 @@ export class Refresher {
   /** True once every machine of the first refresh has finished a read, whether or not it worked. */
   get loaded() { return this.starting?.size === 0; }
 
-  /** Reads every machine; one still reading reads again when it is done. Resolves when the reads it started land. */
-  refresh() {
+  /**
+   * Reads every machine. Each read started here publishes through `onPublish({ on, first })`,
+   * including any repeat while the machine is busy. `first` means the machine had no baseline
+   * before the read. Resolves when the reads it started land.
+   */
+  refresh(onPublish) {
     const targets = this.targets();
     this.starting ??= new Set(targets);
     return Promise.all(targets.map((on) => {
       const entry = this.entry(on);
       if (entry.reading) { entry.again = true; return null; }
-      return this.run(on, entry);
+      return this.run(on, entry, onPublish);
     }));
   }
 
@@ -127,14 +129,14 @@ export class Refresher {
     return [...new Set(this.io.panes().filter((p) => p.cwd && machineOf(p.pane) === on).map((p) => p.cwd))];
   }
 
-  async run(on, entry) {
+  async run(on, entry, onPublish) {
     do {
       entry.again = false; entry.reading = true;
       let first = false;
       try { first = await this.read(on, entry); entry.error = null; }
       catch (e) { entry.error = reason(e); }
       finally { entry.reading = false; this.starting.delete(on); }
-      this.io.onPublish({ on, first });
+      onPublish({ on, first });
     } while (entry.again);
   }
 

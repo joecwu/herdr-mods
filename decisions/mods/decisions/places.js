@@ -1,0 +1,100 @@
+// Where panes, projects and requesters are, across machines. Pure, so it runs under `node --test`.
+
+import { PENDING } from "./decision-file.js";
+
+/** The machine a remote pane, tab or terminal id names with its "machine/" prefix; null for this one. */
+export const machineOf = (id) => (id?.includes("/") ? id.slice(0, id.indexOf("/")) : null);
+
+/** A path's key across machines: "machine:path" on another machine, the bare path on this one. */
+export const placeKey = (on, path) => (on ? `${on}:${path}` : path);
+
+/** A requester as hc addresses it from here: remote sessions write their bare $HC_TERMINAL_ID. */
+export const addressOf = (on, requester) => (on && requester && !requester.includes("/") ? `${on}/${requester}` : requester);
+
+/**
+ * Who asked, as the person knows it. Each terminal pane in the requester's tab goes by its pane
+ * name, else the tab's name when someone named the tab, else its address. When another terminal
+ * pane in the tab goes by the same name, " · <terminal id>" is added; if that is still shared, the
+ * address is used. A label that still meets another pane's, as when a pane is named after
+ * another's address, gets " (<address>)" until none is shared. A requester with no pane here is
+ * its address.
+ */
+export function requesterLabel(requester, panes, spaces) {
+  const terminals = panes.filter((p) => p.terminal);
+  const own = terminals.find((p) => p.terminal === requester);
+  if (!own) return requester;
+  const tab = spaces.flatMap((space) => space.tabs).find((t) => t.id === own.tab);
+  const inTab = terminals.filter((p) => p.tab === own.tab);
+  const name = (p) => p.name || (tab?.named && tab.name) || p.terminal;
+  const withId = (p) => `${name(p)} · ${p.terminal.slice(p.terminal.lastIndexOf("/") + 1)}`;
+  const labelOf = (p) => {
+    const peers = inTab.filter((q) => q !== p);
+    if (!peers.some((q) => name(q) === name(p))) return name(p);
+    return peers.some((q) => withId(q) === withId(p) || name(q) === withId(p)) ? p.terminal : withId(p);
+  };
+  const labels = new Map(inTab.map((p) => [p, labelOf(p)]));
+  for (;;) {
+    const count = new Map();
+    for (const label of labels.values()) count.set(label, (count.get(label) ?? 0) + 1);
+    const shared = [...labels].filter(([, label]) => count.get(label) > 1);
+    if (!shared.length) return labels.get(own);
+    for (const [p, label] of shared) labels.set(p, `${label} (${p.terminal})`);
+  }
+}
+
+/**
+ * Where spaces, terminals and projects are right now, for bySpace: `order` lists the spaces as
+ * `{ id, name }`, `terminals` maps a terminal address to its space, `roots` a project's key to the
+ * first space with a pane in it. `rootOf(on, folder)` is the project root of a pane's folder on
+ * machine `on`, or null when the pane maps to no project.
+ */
+export function placesOf(spaces, panes, rootOf) {
+  const tabs = new Map(), terminals = new Map(), roots = new Map();
+  const order = spaces.map((space) => {
+    const place = { id: space.id, name: space.name };
+    for (const tab of space.tabs) tabs.set(tab.id, place);
+    return place;
+  });
+  for (const pane of panes) {
+    const place = tabs.get(pane.tab);
+    if (!place) continue;
+    if (pane.terminal) terminals.set(pane.terminal, place);
+    const on = machineOf(pane.pane);
+    const root = rootOf(on, pane.cwd);
+    if (root && !roots.has(placeKey(on, root))) roots.set(placeKey(on, root), place);
+  }
+  return { order, terminals, roots };
+}
+
+/**
+ * Every machine's last read (a Refresher's `machines`) as one list of projects, in the machines'
+ * order, and the warnings to show: `unreachable` for a machine that can't be reached (`stale` when
+ * one of its projects has a last read, even an empty one), `projectFailed` for a project whose read
+ * failed on a machine that answered, and `failed` for a machine whose read failed outright.
+ */
+export function mergeSnapshots(machines) {
+  const projects = [], warnings = [];
+  for (const [on, entry] of machines) {
+    const unreachable = entry.state === "unreachable";
+    if (entry.error) warnings.push({ kind: "failed", machine: on, why: entry.error });
+    if (unreachable) warnings.push({ kind: "unreachable", machine: on, stale: [...entry.projects.values()].some((p) => p.items !== null) });
+    for (const project of entry.projects.values()) {
+      if (project.error && !unreachable) warnings.push({ kind: "projectFailed", project: project.name, why: project.error });
+      if (project.items) projects.push(project);
+    }
+  }
+  return { projects, warnings };
+}
+
+/**
+ * The pending decisions to announce. `announced` holds the keys already seen pending; a machine
+ * in `quiet` was just read for the first time, so its decisions join without a notification.
+ * Returns them as `fresh`, each with its `project` name, and `announced`, every key pending now.
+ */
+export function newlyPending(announced, projects, quiet) {
+  const pending = projects.flatMap((p) => p.items.filter((i) => i.status === PENDING).map((i) => ({ ...i, project: p.name })));
+  return {
+    fresh: pending.filter((i) => !announced.has(i.key) && !quiet.has(i.on ?? null)),
+    announced: new Set(pending.map((i) => i.key)),
+  };
+}

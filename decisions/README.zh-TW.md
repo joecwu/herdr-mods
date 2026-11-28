@@ -119,7 +119,8 @@ make report-webhooks SINCE=7d
 
 ## 限制
 
-- 只支援本機專案，其他機器上的 pane 會被略過。
+- 其他機器（`hc machine add`）上的 pane 透過 herdr-core 讀取。這些資料夾無法監看，
+  所以決策要等每 15 秒一次的重新整理才會出現，不會即時顯示。
 - 通知 session 用的是 `hc send`，agent 會把它當成通知而不是你的指令。約定檔要求 agent 重新讀決策檔並照做，但沒有強制機制。防呆 hook 只管另一個方向：agent 問了卻沒寫決策檔。
 - Dock 數字是所有 mod 共用的，最後設定的那個生效。
 - 放大是把版面裡 id 為 `main` 的區塊隱藏；版面沒有這個區塊就不能放大。

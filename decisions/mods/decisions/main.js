@@ -14,9 +14,11 @@ import { v_flex, h_flex, InputState, Input, TextView, Scrollbar } from "gpui-bas
 import { parse, withMeta, decidedMeta, segments, PENDING, APPROVED, REJECTED } from "./decision-file.js";
 import { strings } from "./strings.js";
 import { bySpace } from "./groups.js";
-import { panes, spaces, focused, props, layout, exec, hc, readTextFile, writeTextFile, watchFolder, theme, settings, notify, setBadge, checking, run } from "herdr";
+import { requesterLabel, placesOf, newlyPending } from "./places.js";
+import { Refresher, DIR } from "./refresh.js";
+import { tellRequester } from "./tell.js";
+import { panes, spaces, machines, focused, props, layout, exec, hc, readTextFile, writeTextFile, watchFolder, theme, settings, notify, setBadge, checking, run } from "herdr";
 
-const DIR = ".decisions";
 const REFRESH_MS = 15000;
 const RAIL_PX = 44;
 const OPEN_PX = 340;
@@ -24,44 +26,22 @@ const NARROW_BELOW = 120;
 const MAIN_BLOCK = "main";
 const READING_WIDTH = 860;
 
-const localFolders = () => [...new Set(panes().filter((p) => p.cwd && !p.pane.includes("/")).map((p) => p.cwd))];
 const isPending = (item) => item.status === PENDING;
 
 export default class Decisions extends View {
   init(_props, cx) {
-    this.projects = []; this.roots = new Map(); this.known = false; this.announced = null; this.watching = new Set();
+    this.projects = []; this.warnings = []; this.known = false; this.announced = new Set(); this.watching = new Set();
     this.text = strings(props()?.lang); this.fixedRoots = Array.isArray(props()?.roots) ? props().roots : null;
     this.toggled = new Set(); this.notes = new Map(); this.rejecting = new Set(); this.busy = new Set(); this.message = null; this.badge = null; this.tab = null;
+    this.refresher = new Refresher({ exec, readTextFile, panes, machines }, this.fixedRoots);
     if (checking()) return;
     this.refresh(cx);
     cx.timer.every(REFRESH_MS, (cx) => this.refresh(cx));
   }
 
-  async rootOf(folder) {
-    if (this.roots.has(folder)) return this.roots.get(folder);
-    let root = folder;
-    try {
-      const r = await exec("git", ["rev-parse", "--show-toplevel"], { cwd: folder });
-      if (r.code === 0 && r.stdout.trim()) root = r.stdout.trim();
-    } catch { root = folder; }
-    this.roots.set(folder, root);
-    return root;
-  }
-
-  async readProject(root) {
-    const dir = `${root}/${DIR}`;
-    const found = await exec("find", [dir, "-maxdepth", "1", "-type", "f", "-name", "*.md"]);
-    if (found.code !== 0) return null;
-    const items = [];
-    for (const path of found.stdout.split("\n").filter(Boolean).sort()) {
-      const item = parse(await readTextFile(path), path);
-      if (item) items.push(item);
-    }
-    return { root, dir, name: root.split("/").pop(), items };
-  }
-
-  watch(dir, cx) {
-    if (this.watching.has(dir)) return;
+  // Only this machine's folders can be watched; remote ones are read on the refresh timer.
+  watch(dir, on, cx) {
+    if (on || this.watching.has(dir)) return;
     this.watching.add(dir);
     cx.spawn(async (cx) => {
       try { for (;;) { await watchFolder(dir); this.refresh(cx); } }
@@ -70,67 +50,61 @@ export default class Decisions extends View {
   }
 
   refresh(cx) {
-    if (this.loading) { this.again = true; return; }
-    this.loading = true;
-    cx.spawn(async (cx) => {
-      try {
-        const roots = new Set();
-        if (this.fixedRoots) this.fixedRoots.forEach((root) => roots.add(root));
-        else for (const folder of localFolders()) roots.add(await this.rootOf(folder));
-        const projects = [];
-        for (const root of roots) {
-          const project = await this.readProject(root);
-          if (!project) continue;
-          projects.push(project);
-          this.watch(project.dir, cx);
-        }
-        if (!this.fixedRoots) this.announce(projects);
-        this.known = true;
-        this.projects = projects;
-        this.message = null;
-      } catch (e) { this.message = this.text.readFailed(e); }
-      finally {
-        this.loading = false;
-        cx.notify();
-        if (this.again) { this.again = false; this.refresh(cx); }
-      }
-    });
+    cx.spawn((cx) => this.refresher.refresh((change) => this.publish(change, cx)));
   }
 
-  // Toasts for decisions that appeared since the last read, and the Dock badge.
-  announce(projects) {
-    const pending = projects.flatMap((p) => p.items.filter(isPending).map((i) => ({ ...i, project: p.name })));
-    if (this.announced) {
-      for (const item of pending) {
-        if (!this.announced.has(item.path)) notify({ title: this.text.toastTitle(item.project), body: item.title, level: "warning" });
-      }
-    }
-    this.announced = new Set(pending.map((i) => i.path));
-    const badge = pending.length ? String(pending.length) : null;
+  // One machine's read landed: show every machine's last read, and announce what is new.
+  publish({ on, first }, cx) {
+    const { projects, warnings } = this.refresher.snapshot();
+    this.message = null;
+    for (const project of projects) if (project.found) this.watch(project.dir, project.on, cx);
+    if (!this.fixedRoots) this.announce(projects, new Set(first ? [on] : []));
+    this.projects = projects;
+    this.warnings = warnings.map((w) => this.warning(w));
+    this.known = this.refresher.loaded;
+    cx.notify();
+  }
+
+  warning(w) {
+    if (w.kind === "unreachable") return this.text.unreachable(w.machine, w.stale);
+    if (w.kind === "projectFailed") return this.text.projectReadFailed(w.project, w.why);
+    return this.text.readFailed(w.why);
+  }
+
+  // Toasts for decisions that appeared since the last read, and the Dock badge. A machine's
+  // first read only sets what counts as seen.
+  announce(projects, quiet) {
+    const { fresh, announced } = newlyPending(this.announced, projects, quiet);
+    for (const item of fresh) notify({ title: this.text.toastTitle(item.project), body: item.title, level: "warning" });
+    this.announced = announced;
+    const badge = announced.size ? String(announced.size) : null;
     if (badge !== this.badge) { this.badge = badge; setBadge(badge); }
   }
 
   // InputState can't be created while rendering, so the note field is added by a click.
-  addNote(path, cx) {
-    if (!this.notes.has(path)) this.notes.set(path, InputState.new({ placeholder: this.text.notePlaceholder }));
+  addNote(key, cx) {
+    if (!this.notes.has(key)) this.notes.set(key, InputState.new({ placeholder: this.text.notePlaceholder }));
     cx.notify();
   }
 
   // Rejecting asks for the reason first: the session needs it to know how to go on.
   startReject(item, cx) {
-    const input = InputState.new({ placeholder: this.text.reasonPlaceholder, value: this.notes.get(item.path)?.value() ?? "" });
+    const input = InputState.new({ placeholder: this.text.reasonPlaceholder, value: this.notes.get(item.key)?.value() ?? "" });
     input.on("submit", (_e, cx) => this.decide(item, REJECTED, cx));
-    this.notes.set(item.path, input);
-    this.rejecting.add(item.path);
+    this.notes.set(item.key, input);
+    this.rejecting.add(item.key);
     input.focus();
     cx.notify();
   }
 
-  cancelReject(path, cx) {
-    this.rejecting.delete(path);
-    this.notes.delete(path);
+  cancelReject(key, cx) {
+    this.rejecting.delete(key);
+    this.notes.delete(key);
     cx.notify();
   }
+
+  // Who asked, for the person to read. hc send and agent.focus keep the full address.
+  who(requester) { return requesterLabel(requester, panes(), spaces()); }
 
   label(decision) {
     return decision === APPROVED ? this.text.approve : decision === REJECTED ? this.text.rejected : decision;
@@ -140,38 +114,41 @@ export default class Decisions extends View {
   async tell(item, decision, note) {
     if (!item.requester) return this.text.noRequester;
     const message = this.text.sessionMessage({ title: item.title, rejected: decision === REJECTED, label: this.label(decision), note, path: item.path, dir: DIR });
-    try {
-      const r = await hc(["send", item.requester, message]);
-      return r.code === 0 ? null : this.text.notifyFailed(item.requester, (r.stderr || r.stdout).trim());
-    } catch (e) { return this.text.notifyFailed(item.requester, e); }
+    return tellRequester(hc, { address: item.requester, label: this.who(item.requester), message }, this.text);
   }
 
   decide(item, decision, cx) {
-    if (this.busy.has(item.path)) return;
-    this.busy.add(item.path);
-    const note = (this.notes.get(item.path)?.value() ?? "").trim();
+    if (this.busy.has(item.key)) return;
+    this.busy.add(item.key);
+    const note = (this.notes.get(item.key)?.value() ?? "").trim();
+    const on = item.on ?? null;
     cx.spawn(async (cx) => {
       try {
-        const current = await readTextFile(item.path);
+        const current = await readTextFile(item.path, { on });
         if (current === null) throw new Error(this.text.fileGone);
         if (parse(current, item.path)?.status !== PENDING) throw new Error(this.text.alreadyDecided);
         const next = withMeta(current, decidedMeta(decision, note, new Date()));
-        try { await writeTextFile(item.path, next, current); }
-        catch (e) {
-          // writeTextFile may refuse a path outside the app's home: write through the shell instead.
-          const r = await exec("sh", ["-c", 'printf %s "$1" > "$2"', "decisions", next, item.path]);
-          if (r.code !== 0) throw new Error(`${e}; ${r.stderr.trim()}`);
+        // writeTextFile only writes on this machine and may refuse a path outside the app's home:
+        // otherwise write through the shell, on the file's machine.
+        const shellWrite = async (why) => {
+          const r = await exec("sh", ["-c", 'printf %s "$1" > "$2"', "decisions", next, item.path], { on });
+          if (r.code !== 0) throw new Error(`${why ?? ""}${why ? "; " : ""}${r.stderr.trim()}`);
+        };
+        if (on) await shellWrite(null);
+        else {
+          try { await writeTextFile(item.path, next, current); }
+          catch (e) { await shellWrite(String(e)); }
         }
         this.message = await this.tell(item, decision, note);
-        this.notes.delete(item.path); this.rejecting.delete(item.path);
+        this.notes.delete(item.key); this.rejecting.delete(item.key);
       } catch (e) { this.message = this.text.writeFailed(e.message ?? e); }
-      finally { this.busy.delete(item.path); this.refresh(cx); cx.notify(); }
+      finally { this.busy.delete(item.key); this.refresh(cx); cx.notify(); }
     });
     cx.notify();
   }
 
   resend(item, cx) {
-    cx.spawn(async (cx) => { this.message = (await this.tell(item, item.decision, item.note)) ?? this.text.notified(item.requester); cx.notify(); });
+    cx.spawn(async (cx) => { this.message = (await this.tell(item, item.decision, item.note)) ?? this.text.notified(this.who(item.requester)); cx.notify(); });
   }
 
   block() { return props()?.block ?? "decisions"; }
@@ -194,24 +171,6 @@ export default class Decisions extends View {
     run("layout.hide", { id: MAIN_BLOCK });
   }
 
-  // Where spaces, terminals and projects are right now, for bySpace.
-  places() {
-    const tabs = new Map(), terminals = new Map(), roots = new Map();
-    const order = spaces().map((space) => {
-      const place = { id: space.id, name: space.name };
-      for (const tab of space.tabs) tabs.set(tab.id, place);
-      return place;
-    });
-    for (const pane of panes()) {
-      const place = tabs.get(pane.tab);
-      if (!place) continue;
-      if (pane.terminal) terminals.set(pane.terminal, place);
-      const root = this.roots.get(pane.cwd);
-      if (root && !roots.has(root)) roots.set(root, place);
-    }
-    return { order, terminals, roots };
-  }
-
   tabChip(id, label, count, selected, here, t, onClick) {
     return h_flex().id(id).flex_none().max_w(160).h(22).px(7).gap(5).items_center().rounded(6).border_1().cursor_pointer().text_size(11)
       .border_color(selected ? t.accent : t.border).bg(selected ? t.raised : t.background).text_color(selected || here ? t.foreground : t.muted)
@@ -230,39 +189,39 @@ export default class Decisions extends View {
     return segments(item.body).map((part, i) => {
       const id = `${key}-${i}`;
       if (part.text !== undefined) return div().w_full().text_size(12).text_color(t.foreground).child(TextView.markdown(`dec-body-${id}`, part.text).selectable(true));
-      const copied = this.copied === `${item.path}#${i}`;
+      const copied = this.copied === `${item.key}#${i}`;
       return h_flex().w_full().gap(8).items_start().p(8).rounded(7).border_1().border_color(t.border).bg(t.raised)
         .child(div().flex_1().min_w(0).font_family(settings().font_family ?? "JetBrains Mono").text_size(11).text_color(t.foreground).child(part.code))
         .child(div().id(`dec-copy-${id}`).flex_none().px(8).py(3).rounded(6).border_1().border_color(copied ? t.done : t.input).text_size(11)
           .text_color(copied ? t.done : t.foreground).cursor_pointer().hover((s) => s.bg(t.hover))
-          .on_click((_e, cx) => { cx.write_to_clipboard(part.code); this.copied = `${item.path}#${i}`; cx.notify(); })
+          .on_click((_e, cx) => { cx.write_to_clipboard(part.code); this.copied = `${item.key}#${i}`; cx.notify(); })
           .child(copied ? this.text.copied : this.text.copy));
     });
   }
 
   card(item, key, t) {
-    const rejecting = this.rejecting.has(item.path);
-    const text = this.text, pending = isPending(item), open = pending !== this.toggled.has(item.path), busy = this.busy.has(item.path);
+    const rejecting = this.rejecting.has(item.key);
+    const text = this.text, pending = isPending(item), open = pending !== this.toggled.has(item.key), busy = this.busy.has(item.key);
     const choices = item.options.length ? item.options : [APPROVED];
     return v_flex().w_full().max_w(READING_WIDTH).flex_none().rounded(8).border_1().border_color(pending ? t.blocked : t.border).bg(t.surface)
       .child(h_flex().id(`dec-head-${key}`).w_full().px(10).py(8).gap(8).items_center().cursor_pointer()
-        .on_click((_e, cx) => { if (this.toggled.has(item.path)) this.toggled.delete(item.path); else this.toggled.add(item.path); cx.notify(); })
+        .on_click((_e, cx) => { if (this.toggled.has(item.key)) this.toggled.delete(item.key); else this.toggled.add(item.key); cx.notify(); })
         .child(div().w(8).h(8).flex_none().rounded(4).bg(pending ? t.blocked : t.done))
         .child(div().flex_1().min_w(0).font_semibold().when(!open, (e) => e.truncate()).child(item.title))
         .when(!pending, (e) => e.child(div().flex_none().max_w(120).truncate().text_size(11).text_color(t.muted).child(this.label(item.decision)))))
       .when(open, (e) => e.child(v_flex().w_full().px(10).pb(10).gap(8)
-        .child(div().text_size(11).text_color(t.dim).child([item.project, item.requester && text.from(item.requester), item.created].filter(Boolean).join(" · ") || item.id))
+        .child(div().text_size(11).text_color(t.dim).child([item.project, item.requester && text.from(this.who(item.requester)), item.created].filter(Boolean).join(" · ") || item.id))
         .children(this.body(item, key, t))
         .when(pending, (e) => e
-          .when(this.notes.has(item.path), (e) => e.child(div().id(`dec-note-${key}`).w_full().h(30).px(8).flex().items_center().rounded(7).border_1().border_color(t.border).cursor_text()
-            .on_mouse_down("left", (_e, cx) => cx.stop_propagation()).child(Input.new(this.notes.get(item.path)).h_full().text_size(12).text_color(t.foreground))))
+          .when(this.notes.has(item.key), (e) => e.child(div().id(`dec-note-${key}`).w_full().h(30).px(8).flex().items_center().rounded(7).border_1().border_color(t.border).cursor_text()
+            .on_mouse_down("left", (_e, cx) => cx.stop_propagation()).child(Input.new(this.notes.get(item.key)).h_full().text_size(12).text_color(t.foreground))))
           .when(rejecting, (e) => e.child(h_flex().w_full().gap(6)
             .child(this.button(`dec-reject-send-${key}`, busy ? text.working : text.sendReject, t, true, (_e, cx) => this.decide(item, REJECTED, cx)))
-            .child(this.button(`dec-reject-cancel-${key}`, text.cancel, t, false, (_e, cx) => this.cancelReject(item.path, cx)))))
+            .child(this.button(`dec-reject-cancel-${key}`, text.cancel, t, false, (_e, cx) => this.cancelReject(item.key, cx)))))
           .when(!rejecting, (e) => e.child(h_flex().w_full().flex_wrap().gap(6)
             .children(choices.map((choice, i) => this.button(`dec-yes-${key}-${i}`, busy ? text.working : this.label(choice), t, true, (_e, cx) => this.decide(item, choice, cx))))
             .child(this.button(`dec-no-${key}`, text.reject, t, false, (_e, cx) => this.startReject(item, cx)))
-            .when(!this.notes.has(item.path), (e) => e.child(this.button(`dec-addnote-${key}`, text.addNote, t, false, (_e, cx) => this.addNote(item.path, cx)))))))
+            .when(!this.notes.has(item.key), (e) => e.child(this.button(`dec-addnote-${key}`, text.addNote, t, false, (_e, cx) => this.addNote(item.key, cx)))))))
         .when(!pending, (e) => e.child(div().text_size(11).text_color(t.muted).child(text.decidedLine(this.label(item.decision), item.note))))
         .when(Boolean(item.requester), (e) => e.child(h_flex().gap(6)
           .child(this.button(`dec-go-${key}`, text.goToSession, t, false, () => run("agent.focus", { terminal: item.requester })))
@@ -272,11 +231,12 @@ export default class Decisions extends View {
   render() {
     const zoomed = this.zoomed(), text = this.text;
     const t = theme(), here = focused()?.space;
-    const groups = bySpace(this.projects, this.places());
+    const groups = bySpace(this.projects, placesOf(spaces(), panes(), (on, folder) => this.refresher.rootOf(on, folder)));
     const pending = groups.reduce((n, group) => n + group.pending, 0);
     const shown = groups.filter((group) => group.id === this.tab);
     const listed = shown.length ? shown : groups;
     const pick = (id) => (_e, cx) => { this.tab = id; cx.notify(); };
+    const lines = [...this.warnings, this.message].filter(Boolean);
     const root = v_flex().id("decisions").size_full().min_h(0).rounded(10).overflow_hidden().bg(t.background).border_1().border_color(t.border)
       .text_color(t.foreground).text_size(13).on_size_change((size, cx) => { this.narrow = size.width < NARROW_BELOW; cx.notify(); });
     if (this.narrow) {
@@ -299,10 +259,11 @@ export default class Decisions extends View {
         .child(v_flex().id("dec-list").absolute().inset_0().overflow_y_scroll().p(10).gap(8).when(zoomed, (e) => e.items_center())
           .children(listed.flatMap((group) => [
             div().w_full().max_w(READING_WIDTH).flex_none().pt(2).text_size(11).font_semibold().text_color(group.id === here ? t.accent : t.muted).child(group.name),
-            ...group.items.map((item) => this.card(item, item.path.replace(/[^A-Za-z0-9]/g, "-"), t)),
+            ...group.items.map((item) => this.card(item, item.key.replace(/[^A-Za-z0-9]/g, "-"), t)),
           ]))
-          .when(!groups.length, (e) => e.child(div().p(4).text_color(t.dim).child(this.loading && !this.known ? text.loading : text.empty(DIR)))))
+          .when(!groups.length, (e) => e.child(div().p(4).text_color(t.dim).child(this.known ? text.empty(DIR) : text.loading))))
         .child(Scrollbar.vertical("dec-list").absolute().inset_0()))
-      .when(Boolean(this.message), (e) => e.child(div().flex_none().px(12).py(8).border_t(1).border_color(t.border).text_size(11).text_color(t.blocked).child(this.message)));
+      .when(lines.length > 0, (e) => e.child(v_flex().flex_none().px(12).py(8).gap(2).border_t(1).border_color(t.border).text_size(11).text_color(t.blocked)
+        .children(lines.map((line) => div().child(line)))));
   }
 }
